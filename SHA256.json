@@ -1,0 +1,214 @@
+{
+  "START-HERE-AR.md": {
+    "bytes": 9442,
+    "sha256": "f6b3efc3bfe26828115393a3231953d4e4a767808c7b2a95423f25280aa502c5"
+  },
+  "VALIDATION.md": {
+    "bytes": 4599,
+    "sha256": "219b92f21f93175a02bec7da1ccb1f6ea5a821c630b5745f267c28178e4421ab"
+  },
+  "backend-updates/Dockerfile": {
+    "bytes": 400,
+    "sha256": "1c3b335eea5ba06d6798d18dc9d20fb851f3dac62cd79b1ac33ec9f701cb4b20"
+  },
+  "backend-updates/app.js": {
+    "bytes": 13176,
+    "sha256": "edd383ead425d68538bd578686093ea3ff70b9bb32fc1b925d1f070c3eae0d56"
+  },
+  "backend-updates/records.js": {
+    "bytes": 10691,
+    "sha256": "c03e36d4e5786237c7c44b89e9fb82733b9ab1f8ebc23126ef2bc5a07395a531"
+  },
+  "backend-updates/validation.js": {
+    "bytes": 5344,
+    "sha256": "f1e13983b569fe145ee276de4243a2671d1b8a75677a81197409f29ed7a751b8"
+  },
+  "backend-updates/workspace-api.js": {
+    "bytes": 22094,
+    "sha256": "7f0bae63816aa75db200f606088ed355d420ba415ca082b4ada5cec06f77e2ef"
+  },
+  "developer/API-WORKSPACE.md": {
+    "bytes": 3174,
+    "sha256": "0aa2515b261da5a9ef69f587dab3d56f979626c6cf3a792e12cc95b1b6894427"
+  },
+  "developer/DGJ-CRM-backend-connected/.env.example": {
+    "bytes": 774,
+    "sha256": "f616ae51b571a18e78b21a672ab8fb663e2d4a7b3cc4752a87ef827add23896b"
+  },
+  "developer/DGJ-CRM-backend-connected/API.md": {
+    "bytes": 8192,
+    "sha256": "f13bdfc416683f3e954a879d9e1bc9dab809eb5ddc6315d7c7a8995a0fce386f"
+  },
+  "developer/DGJ-CRM-backend-connected/Dockerfile": {
+    "bytes": 255,
+    "sha256": "cad39015f7709109d9ffd40ac8f3f4e8fd6720767306f195ab252c62f599d888"
+  },
+  "developer/DGJ-CRM-backend-connected/VALIDATION.md": {
+    "bytes": 4599,
+    "sha256": "219b92f21f93175a02bec7da1ccb1f6ea5a821c630b5745f267c28178e4421ab"
+  },
+  "developer/DGJ-CRM-backend-connected/migrations/001-crm.sql": {
+    "bytes": 2344,
+    "sha256": "aa607e4cc00d843336273f09ad191b4bcd262b6af051b3bc33ea030204d08a75"
+  },
+  "developer/DGJ-CRM-backend-connected/package-lock.json": {
+    "bytes": 74000,
+    "sha256": "22d68bc44f7da184ea0c3083b4540c447cea33dfeab250463e220788f30d236d"
+  },
+  "developer/DGJ-CRM-backend-connected/package.json": {
+    "bytes": 708,
+    "sha256": "f5dc0b3fdf7cada7cf2dbcad6ca05b1e01343521a061cedd5b71b59bcf3f9a1f"
+  },
+  "developer/DGJ-CRM-backend-connected/public/index.html": {
+    "bytes": 5606,
+    "sha256": "426c328e0dcf7b8070cf8946219bdbebf3061517d433ffe75efd389b2420bd89"
+  },
+  "developer/DGJ-CRM-backend-connected/public/panel.css": {
+    "bytes": 3152,
+    "sha256": "950768fa4c63ec484f9f3062009ec7482053309ad647f55d63d1386416d0923d"
+  },
+  "developer/DGJ-CRM-backend-connected/public/panel.js": {
+    "bytes": 13235,
+    "sha256": "04509aae3d2edf6fb6b953bbbb60829c8b6ca37b00605dea9f3bae1b40e59371"
+  },
+  "developer/DGJ-CRM-backend-connected/railway.json": {
+    "bytes": 321,
+    "sha256": "7010f4212557ea625b8fbb0e8fb1a8055f3740fe9efc6dc92f593105374e3b81"
+  },
+  "developer/DGJ-CRM-backend-connected/setup-tools/generate-secret.html": {
+    "bytes": 980,
+    "sha256": "c2547d4d70de2718a566012a56f8739badbc03602e2bf29c3b646fbf37e7cbc9"
+  },
+  "developer/DGJ-CRM-backend-connected/setup-tools/generate-secret.js": {
+    "bytes": 417,
+    "sha256": "e594007bad61e897e619be88861b81bc2463c427abb4c3f36f16c4ae2388deaa"
+  },
+  "developer/DGJ-CRM-backend-connected/src/app.js": {
+    "bytes": 13176,
+    "sha256": "edd383ead425d68538bd578686093ea3ff70b9bb32fc1b925d1f070c3eae0d56"
+  },
+  "developer/DGJ-CRM-backend-connected/src/auth.js": {
+    "bytes": 1249,
+    "sha256": "a04d3798904c183d886340076b162a99bf2dfcbbcace307c95baee8186402998"
+  },
+  "developer/DGJ-CRM-backend-connected/src/config.js": {
+    "bytes": 2775,
+    "sha256": "4a7b9a7ec54ebd97d245d939ca99d558a9f8390dfea29f34eeb71d37c458f0b6"
+  },
+  "developer/DGJ-CRM-backend-connected/src/db.js": {
+    "bytes": 961,
+    "sha256": "2473469ad9378c5c27fd6d9384b921843cf911b14b5e03cd86f8849fa884458a"
+  },
+  "developer/DGJ-CRM-backend-connected/src/errors.js": {
+    "bytes": 317,
+    "sha256": "0bd95287b0feb3583e0f34fcd3a67e3ec78fb40bd676cdec97149e637782201c"
+  },
+  "developer/DGJ-CRM-backend-connected/src/migrate.js": {
+    "bytes": 1314,
+    "sha256": "92f53e9daee58907abe7bfe68a123e2bf1b72238df392198a929c5f0717f13bc"
+  },
+  "developer/DGJ-CRM-backend-connected/src/records.js": {
+    "bytes": 10691,
+    "sha256": "c03e36d4e5786237c7c44b89e9fb82733b9ab1f8ebc23126ef2bc5a07395a531"
+  },
+  "developer/DGJ-CRM-backend-connected/src/start.js": {
+    "bytes": 1215,
+    "sha256": "dd3a861132e7f0d6b01aed14cd89890359f79f1078f617086cb65ef4e54ec0ec"
+  },
+  "developer/DGJ-CRM-backend-connected/src/users.js": {
+    "bytes": 3876,
+    "sha256": "d691e9397ef40c7baef9367f50b38d468825b48d03d91d29970b760e9a1ad3b1"
+  },
+  "developer/DGJ-CRM-backend-connected/src/validation.js": {
+    "bytes": 5344,
+    "sha256": "f1e13983b569fe145ee276de4243a2671d1b8a75677a81197409f29ed7a751b8"
+  },
+  "developer/DGJ-CRM-backend-connected/src/workspace-api.js": {
+    "bytes": 22094,
+    "sha256": "7f0bae63816aa75db200f606088ed355d420ba415ca082b4ada5cec06f77e2ef"
+  },
+  "developer/DGJ-CRM-backend-connected/test/backend.test.js": {
+    "bytes": 20106,
+    "sha256": "8f28d4156c702484bebead9a0386ef23ef3931bc0da486552a27141daeac608a"
+  },
+  "developer/DGJ-CRM-backend-connected/test/setup-tool.test.js": {
+    "bytes": 1100,
+    "sha256": "3169fa170f5b8d5d82522424f48be66e4242e1452c1b10b3521949cbc79cba45"
+  },
+  "developer/DGJ-CRM-backend-connected/test/workspace.test.js": {
+    "bytes": 25281,
+    "sha256": "48b97708aee80614c450b1f0adab69da5f8169f55286320110b6d9765b2cae8c"
+  },
+  "developer/DGJ-CRM-connected/app.js": {
+    "bytes": 79355,
+    "sha256": "21b9789ef731a79bff6798a26942559e40cfc01f947be6df10f0674878dde3df"
+  },
+  "developer/DGJ-CRM-connected/assets/dgj-banner.png": {
+    "bytes": 90039,
+    "sha256": "34604b980bde2a145d542d138f3361f490f7bc9dd0b64b1516588d4fb7796b16"
+  },
+  "developer/DGJ-CRM-connected/assets/palm.png": {
+    "bytes": 20699,
+    "sha256": "3fa33cb523cd09643cf5c673210c402494591fe60b1956d8112af789ef3001e4"
+  },
+  "developer/DGJ-CRM-connected/assets/saudi-map.png": {
+    "bytes": 30230,
+    "sha256": "09e627f4598dd1ecac5588f0aa8f4f56c524cfe1da32001795ce37b1fe03e115"
+  },
+  "developer/DGJ-CRM-connected/auth-runtime.js": {
+    "bytes": 297,
+    "sha256": "b40d2cb09dfda5203f6999e8cedf3a0dc437dabb76d7454f68be458d52b085eb"
+  },
+  "developer/DGJ-CRM-connected/connection.css": {
+    "bytes": 1701,
+    "sha256": "f466cd8f75a1ff851b9d88ad646b7e20835f7e0a408a5f936368b7fbcd1b5258"
+  },
+  "developer/DGJ-CRM-connected/connection.js": {
+    "bytes": 18709,
+    "sha256": "46a81db30035f67912c16db767c60556bb4ca57cb9741c96d1a5de6318f49a54"
+  },
+  "developer/DGJ-CRM-connected/dist/index.html": {
+    "bytes": 559947,
+    "sha256": "b57df97c42dbf9e2a7a9ba7b52272658f4d7664572d6ebf31904cf7e5828562d"
+  },
+  "developer/DGJ-CRM-connected/index.html": {
+    "bytes": 2677,
+    "sha256": "b0fc145ea430befb43604134d313641cee2867cb9b27866bb7d5abecb8857a92"
+  },
+  "developer/DGJ-CRM-connected/interactions.js": {
+    "bytes": 33970,
+    "sha256": "c9686137bfe5589aa5d105c87ac92ae55429e5501a8a8a49b3263ca10b6e093f"
+  },
+  "developer/DGJ-CRM-connected/profiles.js": {
+    "bytes": 31683,
+    "sha256": "4af043c262c2e116805ca79dbcb0e1302abaad4cbcad059f8b03c6f9aab38dee"
+  },
+  "developer/DGJ-CRM-connected/style.css": {
+    "bytes": 16979,
+    "sha256": "90c5632c64646f03f6bc67bb004a2084f9f1e052dba0cbbe9d7e35dbf54016e5"
+  },
+  "developer/DGJ-CRM-connected/workspace.css": {
+    "bytes": 40095,
+    "sha256": "48cfb7254d70741e1dc76fde2d55e97af579a0123176f32b72959035c670fec3"
+  },
+  "developer/DGJ-CRM-connected/workspace.js": {
+    "bytes": 105809,
+    "sha256": "1de47f60e711de2739ddfae8c17ee409a0d0b0716a40c5cc50621ead5c9af44d"
+  },
+  "developer/README.md": {
+    "bytes": 1346,
+    "sha256": "5bdaf95ff8e741fe7e6653a0de4cc0f0a185c07902234fcfbc1016dc0c550f42"
+  },
+  "developer/TEST-RESULTS.txt": {
+    "bytes": 3319,
+    "sha256": "b6cb37f5a6ee98bdc3528b5ec1e48b57260c5b1e6f2e8e18a1f1db9c4c6e613a"
+  },
+  "developer/build-connected.py": {
+    "bytes": 1316,
+    "sha256": "d8b7b8ea21ec31fcd86a75df3eaafb39aa8049030524d9f199a53fb23e242b87"
+  },
+  "frontend/index.html": {
+    "bytes": 559947,
+    "sha256": "b57df97c42dbf9e2a7a9ba7b52272658f4d7664572d6ebf31904cf7e5828562d"
+  }
+}

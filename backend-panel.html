@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DGJ | اختبار الحسابات والكونتاكت</title>
+  <link rel="stylesheet" href="/panel.css"><script src="/panel.js" defer></script>
+</head>
+<body>
+  <header><span class="brand" dir="ltr">DGJ <span>CRM</span></span><span class="badge">مساحة التجربة</span></header>
+  <main>
+    <section id="login-card" class="card narrow">
+      <p class="eyebrow">الحسابات والحفظ المشترك</p><h1>أهلًا بك</h1>
+      <p class="muted">ادخلي بحساب أضافته المديرة. استخدمي بيانات تجريبية في هذه المرحلة.</p>
+      <form id="login-form">
+        <label>البريد الإلكتروني<input name="email" type="email" dir="ltr" required autocomplete="username"></label>
+        <label>كلمة المرور<input name="password" type="password" dir="ltr" required autocomplete="current-password"></label>
+        <button type="submit">تسجيل الدخول</button>
+      </form>
+      <p class="muted">هذه صفحة اختبار الباك إند. <a href="https://leenaaloufi.github.io/dgj-crm/">افتحي موقع DGJ CRM الرئيسي</a>.</p>
+    </section>
+    <section id="workspace" hidden>
+      <div class="welcome"><div><p class="eyebrow">اختبار الربط</p><h1 id="greeting"></h1><p id="role-label" class="muted"></p></div><button id="logout" class="secondary">تسجيل الخروج</button></div>
+      <p class="notice">هذه صفحة لاختبار الحسابات والكونتاكت. واجهة الـCRM الرئيسية موجودة على GitHub Pages.</p>
+      <div class="metrics"><div class="card"><span>الكونتاكت المتاح لك</span><strong id="contact-count">0</strong></div><div class="card"><span>حفظ مشترك</span><strong class="small">PostgreSQL</strong></div></div>
+      <div class="grid">
+        <section class="card"><h2 id="contact-form-title">إضافة كونتاكت</h2>
+          <form id="contact-form">
+            <label>الاسم<input name="name" required maxlength="250"></label>
+            <label>الشركة<input name="company" maxlength="250"></label>
+            <label>المسمّى الوظيفي<input name="jobTitle" maxlength="250"></label>
+            <label>البريد الإلكتروني<input name="email" type="email" dir="ltr" maxlength="254"></label>
+            <label>الهاتف<input name="phone" type="tel" dir="ltr" maxlength="80"></label>
+            <label id="visibility-field" hidden>مشاركة السجل<select name="visibility"><option value="shared">مشترك مع الفريق</option><option value="private">خاص بالمديرة</option></select></label>
+            <div class="buttons"><button type="submit">حفظ الكونتاكت</button><button type="button" id="cancel-edit" class="secondary" hidden>إلغاء التعديل</button></div>
+          </form>
+        </section>
+        <section class="card"><div class="section-top"><h2>الكونتاكت</h2><button id="refresh" class="secondary">تحديث</button></div>
+          <form id="search-form" class="search"><input name="query" type="search" placeholder="ابحثي بالاسم أو الشركة" aria-label="البحث عن كونتاكت"><button>بحث</button></form>
+          <p id="records-meta" class="muted"></p><div id="contact-list" class="record-list"></div>
+          <div class="buttons"><button id="previous" class="secondary">السابق</button><button id="next" class="secondary">التالي</button><button id="export" class="secondary" hidden>تحميل الكونتاكت</button></div>
+        </section>
+      </div>
+      <section id="account-section" class="card" hidden><h2>حسابات الفريق</h2><p class="muted">أضيفي الحساب ثم شاركي كلمة المرور مع صاحبته مباشرة. يمكنها تغييرها بعد الدخول.</p>
+        <form id="account-form" class="account-grid">
+          <label>الاسم<input name="name" required maxlength="100"></label>
+          <label>البريد<input name="email" type="email" dir="ltr" required></label>
+          <label>كلمة مرور أولية<input name="password" type="password" dir="ltr" required minlength="12" maxlength="128" autocomplete="new-password"></label>
+          <label>الصلاحية<select name="role"><option value="member">عضوة</option><option value="manager">مديرة</option></select></label>
+          <button type="submit">إضافة الحساب</button>
+        </form><div id="account-list" class="record-list"></div>
+      </section>
+      <section id="trash-section" class="card" hidden><div class="section-top"><h2>المحذوفات</h2><button id="refresh-trash" class="secondary">تحديث</button></div><div id="trash-list" class="record-list"></div><button id="more-trash" class="secondary" hidden>عرض المزيد</button></section>
+      <section class="card"><h2>تغيير كلمة المرور</h2><form id="password-form" class="account-grid">
+        <label>كلمة المرور الحالية<input name="currentPassword" type="password" required dir="ltr" autocomplete="current-password"></label>
+        <label>كلمة المرور الجديدة<input name="newPassword" type="password" required minlength="12" maxlength="128" dir="ltr" autocomplete="new-password"></label>
+        <button type="submit">تغيير كلمة المرور</button>
+      </form></section>
+    </section>
+    <p id="message" class="message" role="status" aria-live="polite" hidden></p>
+  </main>
+  <footer dir="ltr">DGJ CRM · Prototype</footer>
+</body>
+</html>

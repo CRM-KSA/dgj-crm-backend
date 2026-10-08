@@ -1,0 +1,29 @@
+{
+  "name": "dgj-crm-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Independent DGJ CRM prototype: closed accounts and PostgreSQL storage.",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "start": "node src/start.js",
+    "migrate": "node src/migrate.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js"
+  },
+  "dependencies": {
+    "better-auth": "1.7.7",
+    "cors": "2.8.5",
+    "express": "5.2.1",
+    "express-rate-limit": "8.7.1",
+    "helmet": "8.1.0",
+    "pg": "8.16.3",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite-socket": "0.2.11",
+    "jsdom": "26.1.0"
+  }
+}

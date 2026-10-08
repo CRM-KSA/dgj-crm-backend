@@ -1,0 +1,43 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> dgj-crm-backend@1.0.0 test
+> node --test --test-concurrency=1 test/*.test.js
+
+Initial manager account created. Remove the bootstrap password variable after first login.
+2026-10-07T13:06:47.924Z WARN [Better Auth]: Field lastRequest in table rateLimit has a different type in the database. Expected number but got int8.
+✔ first manager is created once; migration and restart preserve identities and passwords (2757.675308ms)
+✔ no anonymous CRM reads, invalid tokens, unsigned tokens or arbitrary origins (27.096923ms)
+✔ public registration, role mutation and impersonation routes are closed (33.347285ms)
+✔ shared contacts persist across independent authenticated clients; owner is stamped (34.810846ms)
+✔ members cannot create private records; only owning manager can see private data (124.908336ms)
+✔ idempotent creation avoids duplicate saves, detects changed requests and rechecks access (113.777592ms)
+✔ version checks stop stale edits and stamps survive user edits (28.348246ms)
+✔ private-parent permissions propagate through opportunities, meetings, reports and tasks (217.563986ms)
+✔ visibility changes immediately affect linked reads, counts, activity and exports (73.767781ms)
+✔ manager-only trash, restore, purge; deleted parent hides dependencies (127.973663ms)
+✔ disabled account loses session access immediately; user preferences stay separate (51.195398ms)
+✔ strict validation, malicious stage keys, safe HTTPS links and private exports (41.997592ms)
+✔ test panel signs in, saves and edits a contact, handles private data and resets on sign-out (399.286226ms)
+✔ expired sessions cannot read or mutate CRM data (13.566923ms)
+✔ password change revokes other sessions and sign-out invalidates signed bearer (281.244046ms)
+✔ offline setup generates distinct 256-bit hex secrets without network calls (66.098745ms)
+Initial manager account created. Remove the bootstrap password variable after first login.
+✔ published single-file frontend has valid hashes for every inline script and no missing assets (2954.160023ms)
+✔ atomic workspace saves linked report, meeting and tasks; invalid batch rolls back and retry is idempotent (111.874759ms)
+✔ supplement privacy, author restrictions, file validation and personal views are enforced on server (189.316132ms)
+✔ original CRM signs in, saves all entity types, persists career history, notes and views through the real API (933.830198ms)
+✔ network loss never shows a successful save; retry cannot duplicate; stale edits require an explicit refresh (373.383502ms)
+✔ report wizard submits meeting actions and complaints as one transaction (350.256619ms)
+✔ CRM backup restore and Trash restore/purge work through server, including profile supplements (501.944129ms)
+✔ editing draft recipients and legacy preferences preserves private drafts, views and full activity history (639.5211ms)
+✔ a delayed refresh cannot replace a newer successfully saved state (277.750818ms)
+✔ member signs in with trusted role, cannot see private data or export, and revocation clears cached records (283.629341ms)
+ℹ tests 26
+ℹ suites 0
+ℹ pass 26
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13211.939011
+
