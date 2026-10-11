@@ -4,9 +4,10 @@ import { createAuth, authOptions } from './auth.js';
 import { migrate } from './migrate.js';
 import { bootstrapManager } from './users.js';
 import { createApp } from './app.js';
+import { startTaskEmailWorker } from './task-email.js';
 
 loadLocalEnv();
-let pool, server;
+let pool, server, stopTaskEmails;
 try {
   const config = loadConfig();
   pool = createPool(config);
@@ -14,6 +15,7 @@ try {
   const auth = createAuth(config, pool);
   await bootstrapManager(pool, auth, config);
   const app = createApp({config, pool, auth});
+  stopTaskEmails = startTaskEmailWorker(pool);
   server = app.listen(config.port, '0.0.0.0', () => console.log('DGJ CRM service ready.'));
 } catch (error) {
   console.error('Startup failed. Check required variables, credentials and database connectivity.');
@@ -22,6 +24,7 @@ try {
   process.exitCode = 1;
 }
 const shutdown = () => {
+  stopTaskEmails?.();
   if (!server) return;
   const timer = setTimeout(() => process.exit(1), 10000);
   timer.unref();

@@ -137,6 +137,7 @@ const fields = {
   },
   Tasks: {
     date,
+    startDate: date,
     dueDate: date,
     priority: text(100),
     assigneeId: text(128),
