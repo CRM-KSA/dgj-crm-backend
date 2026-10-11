@@ -34,6 +34,9 @@ export async function bootstrapManager(pool, auth, config) {
 
 export async function createMember(pool, auth, actor, input) {
   manager(await trustedMember(pool, actor.id));
+  if (!input.email.toLowerCase().endsWith("@dgjones.com")) {
+    fail(400, "COMPANY_EMAIL_REQUIRED", "Team accounts must use an @dgjones.com email address.");
+  }
   if ((await pool.query('SELECT 1 FROM "user" WHERE email=$1', [input.email])).rowCount) {
     fail(409, 'EMAIL_EXISTS', 'This email already has an account.');
   }
