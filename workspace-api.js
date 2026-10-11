@@ -6,6 +6,7 @@ import { TYPES, parse, recordInput } from "./validation.js";
 import {
   trustedMember,
   manager,
+  writable,
   snapshot,
   visible,
   authorized,
@@ -285,6 +286,7 @@ export async function writeWorkspace(pool, actor, body, key) {
       graph = await snapshot(db),
       initial = new Map(graph),
       aux = await loadAux(db);
+    if (input.operations.length) writable(user);
     const requestKey = `workspace-request:${user.id}:${key}`;
     const existing = (
       await db.query("SELECT value FROM crm_settings WHERE key=$1", [

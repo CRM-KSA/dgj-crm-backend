@@ -158,7 +158,7 @@ export const userInput = z
       .max(254)
       .transform((s) => s.toLowerCase()),
     password: z.string().min(12).max(128),
-    role: z.enum(["manager", "member"]).default("member"),
+    role: z.enum(["manager", "member", "visitor"]).default("member"),
   })
   .strict();
 

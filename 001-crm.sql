@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS crm_members (
   user_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE RESTRICT,
-  role TEXT NOT NULL CHECK (role IN ('manager','member')),
+  role TEXT NOT NULL CHECK (role IN ('manager','member','visitor')),
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -59,3 +59,7 @@ CREATE TABLE IF NOT EXISTS crm_preferences (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+
+-- Upgrade the role constraint on existing installations without changing accounts.
+ALTER TABLE crm_members DROP CONSTRAINT IF EXISTS crm_members_role_check;
+ALTER TABLE crm_members ADD CONSTRAINT crm_members_role_check CHECK (role IN ('manager','member','visitor'));

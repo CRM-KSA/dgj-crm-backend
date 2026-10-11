@@ -30,10 +30,10 @@ import {
   filtered,
   statistics,
 } from "./records.js";
-import { createMember, setEnabled } from "./users.js";
+import { createMember, setEnabled, setRole } from "./users.js";
 import { mountWorkspace } from "./workspace-api.js";
 
-const release = "dgj-microsoft-links-20261008-r1";
+const release = "dgj-visitor-role-20261011-r1";
 
 export function createApp({ config, pool, auth }) {
   const app = express();
@@ -149,6 +149,15 @@ export function createApp({ config, pool, auth }) {
   });
   app.use("/api/workspace", express.json({ limit: "6mb" }));
   app.use("/api", express.json({ limit: "256kb" }));
+  // Auth password/sign-out routes run earlier. Visitors may save only personal view preferences.
+  app.use("/api", (req, res, next) => {
+    if (req.crmUser.role === "visitor" && ["POST", "PUT", "PATCH", "DELETE"].includes(req.method)
+        && !(req.method === "PUT" && req.path === "/preferences")
+        && !(req.method === "POST" && req.path === "/workspace")) {
+      return next(new HttpError(403, "READ_ONLY", "Visitor accounts can view records only."));
+    }
+    next();
+  });
   mountWorkspace(app, { pool });
   app.get("/api/me", (req, res) => res.json({ user: profile(req.crmUser) }));
   app.get("/api/team", async (req, res) => {
@@ -183,6 +192,12 @@ export function createApp({ config, pool, auth }) {
     if (!/^[a-zA-Z0-9_-]{1,128}$/.test(req.params.id))
       fail(400, "INVALID_ID", "Invalid user ID.");
     res.json(await setEnabled(pool, req.crmUser, req.params.id, enabled));
+  });
+  app.patch("/api/users/:id/role", async (req, res) => {
+    manager(req.crmUser);
+    const {role} = parse(z.object({role: z.enum(["manager", "member", "visitor"])}).strict(), req.body);
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(req.params.id)) fail(400, "INVALID_ID", "Invalid user ID.");
+    res.json(await setRole(pool, req.crmUser, req.params.id, role));
   });
   app.get("/api/records/:type", async (req, res) => {
     const type = typeOf(req.params.type),

@@ -11,6 +11,9 @@ export async function trustedMember(db, id) {
 export function manager(user) {
   if (user.role !== 'manager') fail(403, 'MANAGER_REQUIRED', 'Only a manager can do this.');
 }
+export function writable(user) {
+  if (user.role === 'visitor') fail(403, 'READ_ONLY', 'Visitor accounts can view records only.');
+}
 export const profile = user => ({ id: user.id, name: user.name, email: user.email, role: user.role,
   initials: user.name.split(/\s+/).filter(Boolean).slice(0, 2).map(n => n[0]).join('').toUpperCase() });
 
@@ -104,6 +107,7 @@ export function versionMatches(record, version) {
 export async function createRecord(pool, actor, type, input, key) {
   return transaction(pool, async db => {
     const user = await trustedMember(db, actor.id);
+    writable(user);
     const graph = await snapshot(db);
     const fingerprint = createHash('sha256').update(JSON.stringify(stable({type, input}))).digest('hex');
     const oldRequest = (await db.query('SELECT * FROM crm_create_requests WHERE actor_id=$1 AND request_key=$2', [user.id, key])).rows[0];
@@ -132,6 +136,7 @@ export async function createRecord(pool, actor, type, input, key) {
 export async function updateRecord(pool, actor, type, id, input, version) {
   return transaction(pool, async db => {
     const user = await trustedMember(db, actor.id);
+    writable(user);
     const graph = await snapshot(db);
     const old = authorized(graph, user, type, id);
     versionMatches(old, version);

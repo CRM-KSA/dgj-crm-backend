@@ -68,3 +68,22 @@ export async function setEnabled(pool, actor, targetId, enabled) {
     return {id: targetId, enabled};
   });
 }
+
+export async function setRole(pool, actor, targetId, role) {
+  return transaction(pool, async db => {
+    const user = await trustedMember(db, actor.id); manager(user);
+    if (!['manager','member','visitor'].includes(role)) fail(400, 'INVALID_ROLE', 'Choose a valid CRM role.');
+    const target = (await db.query('SELECT * FROM crm_members WHERE user_id=$1', [targetId])).rows[0];
+    if (!target) fail(404, 'NOT_FOUND', 'Account not available.');
+    if (target.role === role) return {id: targetId, role};
+    if (targetId === user.id) fail(400, 'SELF_ROLE_CHANGE', 'Another manager must change your role.');
+    if (target.enabled && target.role === 'manager' && role !== 'manager') {
+      const n = (await db.query("SELECT COUNT(*)::int AS n FROM crm_members WHERE role='manager' AND enabled=TRUE AND user_id<>$1", [targetId])).rows[0].n;
+      if (!n) fail(409, 'LAST_MANAGER', 'At least one manager must stay enabled.');
+    }
+    await db.query('UPDATE crm_members SET role=$2 WHERE user_id=$1', [targetId, role]);
+    await db.query('DELETE FROM session WHERE "userId"=$1', [targetId]);
+    await audit(db, user, 'account.role_changed');
+    return {id: targetId, role};
+  });
+}
