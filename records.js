@@ -96,6 +96,11 @@ export function visibilityFor(user, type, input, old = null) {
   return next;
 }
 export async function validateAssignee(db, data) {
+  if (data.personnelIds?.length) {
+    const ids=[...new Set(data.personnelIds)];
+    const {rows}=await db.query('SELECT user_id FROM crm_members WHERE user_id=ANY($1::text[]) AND enabled=TRUE',[ids]);
+    if(rows.length!==ids.length) fail(400,'INVALID_PERSONNEL','Choose active team members for the meeting.');
+  }
   if (!data.assigneeId) return;
   const { rows } = await db.query('SELECT user_id FROM crm_members WHERE user_id=$1 AND enabled=TRUE', [data.assigneeId]);
   if (!rows.length) fail(400, 'INVALID_ASSIGNEE', 'Choose an active team member.');

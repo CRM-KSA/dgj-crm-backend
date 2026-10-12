@@ -18,12 +18,15 @@ export function localClock(now = new Date()) {
   return {date:`${parts.year}-${parts.month}-${parts.day}`, hour:Number(parts.hour)};
 }
 export function taskPayload(task, recipient, event, config) {
-  const labels={assignment:'Task assigned',start:'Task starts today',due:'Task due today',completion:'Task completed',cancellation:'Task cancelled',reopened:'Task reopened',due_changed:'Task due date changed'};
+  const labels={assignment:'Task assigned',start:'Task starts today',due:'Task due today',completion:'Task completed',cancellation:'Task cancelled',reopened:'Task reopened',due_changed:'Task due date changed',new_contact:'New contact',new_opportunity:'New opportunity',new_meeting:'New meeting',new_complaint:'New complaint'};
   const changes=event.event_data || {};
   return {eventId:event.event_key,notificationType:event.kind,taskId:task.id,
     taskTitle:task.data.name,assigneeEmail:recipient.email,assigneeName:recipient.name,
     startDate:task.data.startDate || '',dueDate:task.data.date || task.data.dueDate || '',crmUrl:config.website,
-    notificationTitle:labels[event.kind] || 'Task notification',taskStatus:task.data.status || '',
+    notificationTitle:labels[event.kind] || 'CRM notification',taskStatus:task.data.status || '',
+    recordId:task.id,recordType:task.type,recordTitle:task.data.name,recordStatus:task.data.status || '',
+    recipientEmail:recipient.email,recipientName:recipient.name,meetingDate:task.type==='Meetings' ? task.data.date || '' : '',
+    meetingTime:task.type==='Meetings' ? `${task.data.time || ''}–${task.data.end || ''} (Riyadh)` : '',
     previousDueDate:changes.previousDueDate || '',recipientRole:changes.recipientRole || 'assignee',
     changeSummary:event.kind==='due_changed' ? `Due date changed from ${changes.previousDueDate || 'not set'} to ${changes.newDueDate || 'not set'}.` : labels[event.kind] || 'Task notification'};
 }
@@ -66,11 +69,17 @@ export async function deliverPending(pool, config, send, now = new Date()) {
     const closed=['Completed','Cancelled'].includes(task?.data.status);
     const stateMatches=event.kind==='completion' ? task?.data.status==='Completed'
       : event.kind==='cancellation' ? task?.data.status==='Cancelled' : !closed;
-    const creatorEvent=['completion','cancellation','reopened'].includes(event.kind) && event.event_data?.recipientRole==='creator';
+    const creatorEvent=['cancellation','reopened'].includes(event.kind) && event.event_data?.recipientRole==='creator';
     const recipientMatches=creatorEvent ? task?.owner_id===event.assignee_id : task?.data.assigneeId===event.assignee_id;
     const timeMatches=lifecycle ? (event.kind!=='due_changed' || currentDue===event.event_data?.newDueDate && event.event_data?.previousDueDate!==event.event_data?.newDueDate)
       : event.event_date===clock.date && date===event.event_date;
-    const valid=(!latest || Number(latest.rows[0].version)===event.assignment_version) && task?.type==='Tasks'
+    const generic=['new_contact','new_opportunity','new_complaint','new_meeting'].includes(event.kind);
+    const expected={new_contact:'Contacts',new_opportunity:'Opportunities',new_complaint:'Complaints',new_meeting:'Meetings'};
+    const genericValid=generic && task?.type===expected[event.kind] && recipient?.enabled && /@dgjones\.com$/i.test(recipient.email)
+      && visible(graph,recipient,task) && (event.kind==='new_meeting'
+        ? task.data.status!=='Cancelled' && (task.data.personnelIds || []).includes(event.assignee_id)
+        : recipient.role==='manager');
+    const valid=generic ? genericValid : (!latest || Number(latest.rows[0].version)===event.assignment_version) && task?.type==='Tasks'
       && recipient?.enabled && /@dgjones\.com$/i.test(recipient.email) && recipientMatches && stateMatches
       && visible(graph,recipient,task) && timeMatches;
     if (!valid) {await db.query("UPDATE crm_task_emails SET status='skipped' WHERE id=$1",[event.id]);console.log('Task email: skipped (recipient, task status, privacy or stale event).');return true;}

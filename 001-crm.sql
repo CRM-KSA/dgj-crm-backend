@@ -103,7 +103,25 @@ DECLARE
  recipients TEXT[];
  context JSONB;
 BEGIN
- IF NEW.type<>'Tasks' OR NEW.deleted_at IS NOT NULL THEN RETURN NEW; END IF;
+ IF NEW.deleted_at IS NOT NULL THEN RETURN NEW; END IF;
+ IF NEW.type<>'Tasks' THEN
+  IF TG_OP<>'INSERT' THEN RETURN NEW; END IF;
+  IF NEW.type IN ('Contacts','Opportunities','Complaints') THEN
+   event_kind := CASE NEW.type WHEN 'Contacts' THEN 'new_contact' WHEN 'Opportunities' THEN 'new_opportunity' ELSE 'new_complaint' END;
+   SELECT array_agg(user_id) INTO recipients FROM crm_members WHERE role='manager' AND enabled=TRUE;
+  ELSIF NEW.type='Meetings' AND COALESCE(NEW.data->>'status','')<>'Cancelled' THEN
+   event_kind := 'new_meeting';
+   SELECT array_agg(value) INTO recipients FROM jsonb_array_elements_text(COALESCE(NEW.data->'personnelIds','[]'::jsonb));
+  ELSE RETURN NEW;
+  END IF;
+  IF recipients IS NOT NULL THEN
+   FOR recipient IN SELECT DISTINCT value FROM unnest(recipients) AS value WHERE COALESCE(value,'')<>'' LOOP
+    INSERT INTO crm_task_emails(event_key,task_id,assignee_id,kind,assignment_version,event_data)
+    VALUES(NEW.id::text||':'||event_kind||':'||recipient,NEW.id,recipient,event_kind,NEW.version,jsonb_build_object('recipientRole',CASE WHEN event_kind='new_meeting' THEN 'personnel' ELSE 'admin' END)) ON CONFLICT DO NOTHING;
+   END LOOP;
+  END IF;
+  RETURN NEW;
+ END IF;
  IF TG_OP='INSERT' THEN
   IF COALESCE(NEW.data->>'status','') IN ('Completed','Cancelled') THEN RETURN NEW; END IF;
   event_kind := 'assignment';
@@ -113,7 +131,7 @@ BEGIN
   due_old := COALESCE(NULLIF(OLD.data->>'date',''),OLD.data->>'dueDate','');
   due_new := COALESCE(NULLIF(NEW.data->>'date',''),NEW.data->>'dueDate','');
   IF NEW.data->>'status'='Completed' AND COALESCE(OLD.data->>'status','')<>'Completed' THEN
-   event_kind := 'completion'; recipients := ARRAY[NEW.data->>'assigneeId',NEW.owner_id];
+   event_kind := 'completion'; recipients := ARRAY[NEW.data->>'assigneeId'];
   ELSIF NEW.data->>'status'='Cancelled' AND COALESCE(OLD.data->>'status','')<>'Cancelled' THEN
    event_kind := 'cancellation'; recipients := ARRAY[NEW.data->>'assigneeId',NEW.owner_id];
   ELSIF COALESCE(OLD.data->>'status','') IN ('Completed','Cancelled') AND COALESCE(NEW.data->>'status','') NOT IN ('Completed','Cancelled') THEN

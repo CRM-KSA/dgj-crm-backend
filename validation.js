@@ -80,6 +80,7 @@ const fields = {
   },
   Meetings: {
     date,
+    personnelIds: z.array(text(128).min(1)).max(50),
     time: text(5).regex(/^$|^([01]\d|2[0-3]):[0-5]\d$/),
     end: text(5).regex(/^$|^([01]\d|2[0-3]):[0-5]\d$/),
     url,
