@@ -18,9 +18,14 @@ export function localClock(now = new Date()) {
   return {date:`${parts.year}-${parts.month}-${parts.day}`, hour:Number(parts.hour)};
 }
 export function taskPayload(task, recipient, event, config) {
+  const labels={assignment:'Task assigned',start:'Task starts today',due:'Task due today',completion:'Task completed',cancellation:'Task cancelled',reopened:'Task reopened',due_changed:'Task due date changed'};
+  const changes=event.event_data || {};
   return {eventId:event.event_key,notificationType:event.kind,taskId:task.id,
     taskTitle:task.data.name,assigneeEmail:recipient.email,assigneeName:recipient.name,
-    startDate:task.data.startDate || '',dueDate:task.data.date || task.data.dueDate || '',crmUrl:config.website};
+    startDate:task.data.startDate || '',dueDate:task.data.date || task.data.dueDate || '',crmUrl:config.website,
+    notificationTitle:labels[event.kind] || 'Task notification',taskStatus:task.data.status || '',
+    previousDueDate:changes.previousDueDate || '',recipientRole:changes.recipientRole || 'assignee',
+    changeSummary:event.kind==='due_changed' ? `Due date changed from ${changes.previousDueDate || 'not set'} to ${changes.newDueDate || 'not set'}.` : labels[event.kind] || 'Task notification'};
 }
 export function flowSender(config, fetcher = fetch) {
   return async payload => {
@@ -55,11 +60,19 @@ export async function deliverPending(pool, config, send, now = new Date()) {
     const members=await db.query('SELECT m.user_id AS id,m.role,m.enabled,u.name,u.email FROM crm_members m JOIN "user" u ON u.id=m.user_id WHERE m.user_id=$1',[event.assignee_id]);
     const recipient=members.rows[0], clock=localClock(now);
     const date=event.kind==='start' ? task?.data.startDate : (task?.data.date || task?.data.dueDate);
-    const latest = event.kind==='assignment' ? await db.query("SELECT MAX(assignment_version) AS version FROM crm_task_emails WHERE task_id=$1 AND kind='assignment'",[event.task_id]) : null;
-    const valid = (!latest || Number(latest.rows[0].version)===event.assignment_version) && task && task.type==='Tasks' && recipient?.enabled && /@dgjones\.com$/i.test(recipient.email)
-      && task.data.assigneeId===event.assignee_id && !['Completed','Cancelled'].includes(task.data.status)
-      && visible(graph,recipient,task)
-      && (event.kind==='assignment' || (event.event_date===clock.date && date===event.event_date));
+    const lifecycle=['assignment','completion','cancellation','reopened','due_changed'].includes(event.kind);
+    const latest=lifecycle ? await db.query("SELECT MAX(assignment_version) AS version FROM crm_task_emails WHERE task_id=$1 AND kind=$2 AND assignee_id=$3",[event.task_id,event.kind,event.assignee_id]) : null;
+    const currentDue=task?.data.date || task?.data.dueDate || '';
+    const closed=['Completed','Cancelled'].includes(task?.data.status);
+    const stateMatches=event.kind==='completion' ? task?.data.status==='Completed'
+      : event.kind==='cancellation' ? task?.data.status==='Cancelled' : !closed;
+    const creatorEvent=['completion','cancellation','reopened'].includes(event.kind) && event.event_data?.recipientRole==='creator';
+    const recipientMatches=creatorEvent ? task?.owner_id===event.assignee_id : task?.data.assigneeId===event.assignee_id;
+    const timeMatches=lifecycle ? (event.kind!=='due_changed' || currentDue===event.event_data?.newDueDate && event.event_data?.previousDueDate!==event.event_data?.newDueDate)
+      : event.event_date===clock.date && date===event.event_date;
+    const valid=(!latest || Number(latest.rows[0].version)===event.assignment_version) && task?.type==='Tasks'
+      && recipient?.enabled && /@dgjones\.com$/i.test(recipient.email) && recipientMatches && stateMatches
+      && visible(graph,recipient,task) && timeMatches;
     if (!valid) {await db.query("UPDATE crm_task_emails SET status='skipped' WHERE id=$1",[event.id]);console.log('Task email: skipped (recipient, task status, privacy or stale event).');return true;}
     try {
       await send(taskPayload(task,recipient,event,config));

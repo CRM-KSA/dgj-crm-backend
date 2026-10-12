@@ -91,3 +91,52 @@ END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS crm_task_assignment ON crm_records;
 CREATE TRIGGER crm_task_assignment AFTER INSERT OR UPDATE ON crm_records FOR EACH ROW EXECUTE FUNCTION crm_queue_task_assignment();
+
+-- Lifecycle notification upgrade. No historical completion/update emails.
+ALTER TABLE crm_task_emails ADD COLUMN IF NOT EXISTS event_data JSONB NOT NULL DEFAULT '{}';
+CREATE OR REPLACE FUNCTION crm_queue_task_assignment() RETURNS TRIGGER AS $$
+DECLARE
+ event_kind TEXT;
+ recipient TEXT;
+ due_old TEXT;
+ due_new TEXT;
+ recipients TEXT[];
+ context JSONB;
+BEGIN
+ IF NEW.type<>'Tasks' OR NEW.deleted_at IS NOT NULL THEN RETURN NEW; END IF;
+ IF TG_OP='INSERT' THEN
+  IF COALESCE(NEW.data->>'status','') IN ('Completed','Cancelled') THEN RETURN NEW; END IF;
+  event_kind := 'assignment';
+  recipients := ARRAY[NEW.data->>'assigneeId'];
+ ELSE
+  IF OLD.deleted_at IS NOT NULL THEN RETURN NEW; END IF;
+  due_old := COALESCE(NULLIF(OLD.data->>'date',''),OLD.data->>'dueDate','');
+  due_new := COALESCE(NULLIF(NEW.data->>'date',''),NEW.data->>'dueDate','');
+  IF NEW.data->>'status'='Completed' AND COALESCE(OLD.data->>'status','')<>'Completed' THEN
+   event_kind := 'completion'; recipients := ARRAY[NEW.data->>'assigneeId',NEW.owner_id];
+  ELSIF NEW.data->>'status'='Cancelled' AND COALESCE(OLD.data->>'status','')<>'Cancelled' THEN
+   event_kind := 'cancellation'; recipients := ARRAY[NEW.data->>'assigneeId',NEW.owner_id];
+  ELSIF COALESCE(OLD.data->>'status','') IN ('Completed','Cancelled') AND COALESCE(NEW.data->>'status','') NOT IN ('Completed','Cancelled') THEN
+   event_kind := 'reopened'; recipients := ARRAY[NEW.data->>'assigneeId',NEW.owner_id];
+  ELSIF COALESCE(NEW.data->>'status','') IN ('Completed','Cancelled') THEN RETURN NEW;
+  ELSIF (NEW.data->>'assigneeId') IS DISTINCT FROM (OLD.data->>'assigneeId') THEN
+   event_kind := 'assignment'; recipients := ARRAY[NEW.data->>'assigneeId'];
+  ELSIF due_old IS DISTINCT FROM due_new THEN
+   event_kind := 'due_changed'; recipients := ARRAY[NEW.data->>'assigneeId'];
+  ELSE RETURN NEW;
+  END IF;
+ END IF;
+ IF event_kind='due_changed' THEN
+  SELECT COALESCE((SELECT event_data->>'previousDueDate' FROM crm_task_emails WHERE task_id=NEW.id AND kind='due_changed' AND status='pending' AND assignee_id=NEW.data->>'assigneeId' ORDER BY id LIMIT 1),due_old) INTO due_old;
+ END IF;
+ context := jsonb_build_object('previousDueDate',COALESCE(due_old,''),'newDueDate',COALESCE(due_new,COALESCE(NULLIF(NEW.data->>'date',''),NEW.data->>'dueDate','')));
+ FOR recipient IN SELECT DISTINCT value FROM unnest(recipients) AS value WHERE COALESCE(value,'')<>'' LOOP
+  INSERT INTO crm_task_emails(event_key,task_id,assignee_id,kind,assignment_version,event_data,next_attempt)
+  VALUES(NEW.id::text||':'||event_kind||':'||NEW.version::text||':'||recipient,NEW.id,recipient,event_kind,NEW.version,
+   context||jsonb_build_object('recipientRole',CASE WHEN recipient=NEW.data->>'assigneeId' THEN 'assignee' ELSE 'creator' END),
+   NOW()+CASE WHEN event_kind='due_changed' THEN INTERVAL '2 minutes' ELSE INTERVAL '0 seconds' END)
+  ON CONFLICT DO NOTHING;
+ END LOOP;
+ RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
