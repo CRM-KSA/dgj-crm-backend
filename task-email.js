@@ -60,11 +60,13 @@ export async function deliverPending(pool, config, send, now = new Date()) {
       && task.data.assigneeId===event.assignee_id && !['Completed','Cancelled'].includes(task.data.status)
       && visible(graph,recipient,task)
       && (event.kind==='assignment' || (event.event_date===clock.date && date===event.event_date));
-    if (!valid) {await db.query("UPDATE crm_task_emails SET status='skipped' WHERE id=$1",[event.id]);return true;}
+    if (!valid) {await db.query("UPDATE crm_task_emails SET status='skipped' WHERE id=$1",[event.id]);console.log('Task email: skipped (recipient, task status, privacy or stale event).');return true;}
     try {
       await send(taskPayload(task,recipient,event,config));
+      console.log('Task email: flow accepted request. Check Power Automate run history.');
       await db.query("UPDATE crm_task_emails SET status='accepted',accepted_at=NOW(),attempts=attempts+1,last_error=NULL WHERE id=$1",[event.id]);
     } catch (error) {
+      console.error('Task email:', error.message);
       const state=error.uncertain ? 'uncertain' : error.retry && event.attempts<4 ? 'pending' : 'failed';
       await db.query("UPDATE crm_task_emails SET status=$2,attempts=attempts+1,last_error=$3,next_attempt=NOW()+INTERVAL '5 minutes' WHERE id=$1",[event.id,state,error.message.slice(0,160)]);
     }
@@ -72,11 +74,17 @@ export async function deliverPending(pool, config, send, now = new Date()) {
   });
 }
 export function startTaskEmailWorker(pool, env = process.env) {
-  const config=emailConfig(env); if (!config) return ()=>{};
+  const config=emailConfig(env); if (!config) {console.log('Task email worker: DISABLED. Set TASK_EMAIL_ENABLED=true on backend service and deploy.');return ()=>{};}
+  console.log('Task email worker: ENABLED (Power Automate Anyone).');
   const send=flowSender(config); let running=false, stopped=false;
   async function tick() {
     if (running || stopped) return; running=true;
-    try {await queueDateReminders(pool); for(let n=0;n<10 && !stopped;n++) if (!await deliverPending(pool,config,send)) break;}
+    try {
+      await queueDateReminders(pool);
+      const summary=await pool.query("SELECT status,COUNT(*)::int AS count FROM crm_task_emails GROUP BY status ORDER BY status");
+      console.log('Task email queue:',JSON.stringify(summary.rows));
+      for(let n=0;n<10 && !stopped;n++) if (!await deliverPending(pool,config,send)) break;
+    }
     catch {console.error('Task email worker failed. Review configuration and queue status.');}
     finally {running=false;}
   }
