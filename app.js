@@ -33,7 +33,7 @@ import {
 import { createMember, setEnabled, setRole } from "./users.js";
 import { mountWorkspace } from "./workspace-api.js";
 
-const release = "dgj-visitor-role-20261011-r1";
+const release = "dgj-power-automate-anyone-20261012-r1";
 
 export function createApp({ config, pool, auth }) {
   const app = express();

@@ -3,9 +3,6 @@ import { snapshot, visible } from './records.js';
 
 export function emailConfig(env = process.env) {
   if (env.TASK_EMAIL_ENABLED !== 'true') return null;
-  const tenant = env.MS_TENANT_ID || '', client = env.MS_CLIENT_ID || '';
-  if (![tenant, client].every(x => /^[0-9a-f-]{36}$/i.test(x)) || !env.MS_CLIENT_SECRET)
-    throw new Error('Power Automate requires application credentials for the restricted HTTP trigger.');
   let flow;
   try { flow = new URL(env.POWER_AUTOMATE_URL); } catch { throw new Error('POWER_AUTOMATE_URL is required.'); }
   const allowed = ['.api.powerplatform.com','.environment.api.powerplatform.com','.logic.azure.com'];
@@ -14,7 +11,7 @@ export function emailConfig(env = process.env) {
     throw new Error('Use the Microsoft-generated HTTPS flow URL.');
   const website = new URL(env.CRM_PUBLIC_URL || 'https://crm-ksa.github.io/dgj-crm/');
   if (website.protocol !== 'https:' || website.username || website.password) throw new Error('CRM_PUBLIC_URL must use HTTPS.');
-  return {tenant, client, secret: env.MS_CLIENT_SECRET, flowURL:flow.href, website:website.href};
+  return {flowURL:flow.href, website:website.href};
 }
 export function localClock(now = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Riyadh', year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(now).map(x=>[x.type,x.value]));
@@ -26,29 +23,15 @@ export function taskPayload(task, recipient, event, config) {
     startDate:task.data.startDate || '',dueDate:task.data.date || task.data.dueDate || '',crmUrl:config.website};
 }
 export function flowSender(config, fetcher = fetch) {
-  let token, expires = 0;
   return async payload => {
-    if (!token || Date.now() >= expires) {
-      let response;
-      try {response = await fetcher(`https://login.microsoftonline.com/${config.tenant}/oauth2/v2.0/token`, {
-        method:'POST',redirect:'error',signal:AbortSignal.timeout(15000),
-        headers:{'Content-Type':'application/x-www-form-urlencoded'},
-        body:new URLSearchParams({client_id:config.client,client_secret:config.secret,
-          scope:'https://service.flow.microsoft.com/.default',grant_type:'client_credentials'})});}
-      catch {const error=new Error('Flow authentication unavailable');error.retry=true;throw error;}
-      if (!response.ok) {const error=new Error(`Flow authentication rejected (${response.status})`);error.retry=true;throw error;}
-      const body=await response.json();
-      if (!body.access_token) throw new Error('Flow token unavailable');
-      token=body.access_token;expires=Date.now()+Math.max(0,(Number(body.expires_in)||300)-60)*1000;
-    }
     let response;
     try {response=await fetcher(config.flowURL,{method:'POST',redirect:'error',signal:AbortSignal.timeout(15000),
-      headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify(payload)});}
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});}
     catch {const error=new Error('Flow submission outcome unknown');error.uncertain=true;throw error;}
     if (![200,202,204].includes(response.status)) {
       const error=new Error(`Flow submission rejected (${response.status})`);
       error.retry=[401,403,429].includes(response.status);error.uncertain=response.status>=500;
-      if(response.status===401){token=null;expires=0;}throw error;
+      throw error;
     }
   };
 }
