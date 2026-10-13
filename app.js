@@ -33,7 +33,7 @@ import {
 import { createMember, setEnabled, setRole } from "./users.js";
 import { mountWorkspace } from "./workspace-api.js";
 
-const release = "dgj-event-routing-20261012-r1";
+const release = "dgj-admin-routing-20261013-r1";
 
 export function createApp({ config, pool, auth }) {
   const app = express();

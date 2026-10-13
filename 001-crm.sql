@@ -75,86 +75,36 @@ CREATE TABLE IF NOT EXISTS crm_task_emails (
  accepted_at TIMESTAMPTZ, last_error TEXT
 );
 CREATE INDEX IF NOT EXISTS crm_task_emails_pending ON crm_task_emails(status,next_attempt);
-CREATE OR REPLACE FUNCTION crm_queue_task_assignment() RETURNS TRIGGER AS $$
-BEGIN
- IF NEW.type='Tasks' AND NEW.deleted_at IS NULL AND COALESCE(NEW.data->>'assigneeId','')<>'' THEN
-  IF TG_OP='INSERT' THEN
-   INSERT INTO crm_task_emails(event_key,task_id,assignee_id,kind,assignment_version)
-   VALUES(NEW.id::text||':assignment:'||NEW.version::text,NEW.id,NEW.data->>'assigneeId','assignment',NEW.version) ON CONFLICT DO NOTHING;
-  ELSIF (NEW.data->>'assigneeId') IS DISTINCT FROM (OLD.data->>'assigneeId') THEN
-   INSERT INTO crm_task_emails(event_key,task_id,assignee_id,kind,assignment_version)
-   VALUES(NEW.id::text||':assignment:'||NEW.version::text,NEW.id,NEW.data->>'assigneeId','assignment',NEW.version) ON CONFLICT DO NOTHING;
-  END IF;
- END IF;
- RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS crm_task_assignment ON crm_records;
-CREATE TRIGGER crm_task_assignment AFTER INSERT OR UPDATE ON crm_records FOR EACH ROW EXECUTE FUNCTION crm_queue_task_assignment();
-
--- Lifecycle notification upgrade. No historical completion/update emails.
+-- Reminder-only personal notifications. Supersedes all previous lifecycle routing.
 ALTER TABLE crm_task_emails ADD COLUMN IF NOT EXISTS event_data JSONB NOT NULL DEFAULT '{}';
-CREATE OR REPLACE FUNCTION crm_queue_task_assignment() RETURNS TRIGGER AS $$
-DECLARE
- event_kind TEXT;
- recipient TEXT;
- due_old TEXT;
- due_new TEXT;
- recipients TEXT[];
- context JSONB;
+DROP TRIGGER IF EXISTS crm_task_assignment ON crm_records;
+DROP FUNCTION IF EXISTS crm_queue_task_assignment();
+UPDATE crm_task_emails SET status='skipped',last_error='Superseded by reminder-only email policy'
+ WHERE status='pending' AND kind NOT IN ('start','due','meeting_reminder');
+
+-- Separate transactional administrator outbox. No record FK: purge messages survive deletion.
+CREATE TABLE IF NOT EXISTS crm_admin_emails (
+ id BIGSERIAL PRIMARY KEY,event_key TEXT UNIQUE NOT NULL,
+ kind TEXT NOT NULL,record_data JSONB NOT NULL,
+ status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,
+ next_attempt TIMESTAMPTZ NOT NULL DEFAULT NOW(),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ accepted_at TIMESTAMPTZ,last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS crm_admin_emails_pending ON crm_admin_emails(status,next_attempt);
+CREATE OR REPLACE FUNCTION crm_queue_admin_update() RETURNS TRIGGER AS $$
+DECLARE r crm_records%ROWTYPE;
 BEGIN
- IF NEW.deleted_at IS NOT NULL THEN RETURN NEW; END IF;
- IF NEW.type<>'Tasks' THEN
-  IF TG_OP<>'INSERT' THEN RETURN NEW; END IF;
-  IF NEW.type IN ('Contacts','Opportunities','Complaints') THEN
-   event_kind := CASE NEW.type WHEN 'Contacts' THEN 'new_contact' WHEN 'Opportunities' THEN 'new_opportunity' ELSE 'new_complaint' END;
-   SELECT array_agg(user_id) INTO recipients FROM crm_members WHERE role='manager' AND enabled=TRUE;
-  ELSIF NEW.type='Meetings' AND COALESCE(NEW.data->>'status','')<>'Cancelled' THEN
-   event_kind := 'new_meeting';
-   SELECT array_agg(value) INTO recipients FROM jsonb_array_elements_text(COALESCE(NEW.data->'personnelIds','[]'::jsonb));
-  ELSE RETURN NEW;
-  END IF;
-  IF recipients IS NOT NULL THEN
-   FOR recipient IN SELECT DISTINCT value FROM unnest(recipients) AS value WHERE COALESCE(value,'')<>'' LOOP
-    INSERT INTO crm_task_emails(event_key,task_id,assignee_id,kind,assignment_version,event_data)
-    VALUES(NEW.id::text||':'||event_kind||':'||recipient,NEW.id,recipient,event_kind,NEW.version,jsonb_build_object('recipientRole',CASE WHEN event_kind='new_meeting' THEN 'personnel' ELSE 'admin' END)) ON CONFLICT DO NOTHING;
-   END LOOP;
-  END IF;
-  RETURN NEW;
- END IF;
- IF TG_OP='INSERT' THEN
-  IF COALESCE(NEW.data->>'status','') IN ('Completed','Cancelled') THEN RETURN NEW; END IF;
-  event_kind := 'assignment';
-  recipients := ARRAY[NEW.data->>'assigneeId'];
- ELSE
-  IF OLD.deleted_at IS NOT NULL THEN RETURN NEW; END IF;
-  due_old := COALESCE(NULLIF(OLD.data->>'date',''),OLD.data->>'dueDate','');
-  due_new := COALESCE(NULLIF(NEW.data->>'date',''),NEW.data->>'dueDate','');
-  IF NEW.data->>'status'='Completed' AND COALESCE(OLD.data->>'status','')<>'Completed' THEN
-   event_kind := 'completion'; recipients := ARRAY[NEW.data->>'assigneeId'];
-  ELSIF NEW.data->>'status'='Cancelled' AND COALESCE(OLD.data->>'status','')<>'Cancelled' THEN
-   event_kind := 'cancellation'; recipients := ARRAY[NEW.data->>'assigneeId',NEW.owner_id];
-  ELSIF COALESCE(OLD.data->>'status','') IN ('Completed','Cancelled') AND COALESCE(NEW.data->>'status','') NOT IN ('Completed','Cancelled') THEN
-   event_kind := 'reopened'; recipients := ARRAY[NEW.data->>'assigneeId',NEW.owner_id];
-  ELSIF COALESCE(NEW.data->>'status','') IN ('Completed','Cancelled') THEN RETURN NEW;
-  ELSIF (NEW.data->>'assigneeId') IS DISTINCT FROM (OLD.data->>'assigneeId') THEN
-   event_kind := 'assignment'; recipients := ARRAY[NEW.data->>'assigneeId'];
-  ELSIF due_old IS DISTINCT FROM due_new THEN
-   event_kind := 'due_changed'; recipients := ARRAY[NEW.data->>'assigneeId'];
-  ELSE RETURN NEW;
-  END IF;
- END IF;
- IF event_kind='due_changed' THEN
-  SELECT COALESCE((SELECT event_data->>'previousDueDate' FROM crm_task_emails WHERE task_id=NEW.id AND kind='due_changed' AND status='pending' AND assignee_id=NEW.data->>'assigneeId' ORDER BY id LIMIT 1),due_old) INTO due_old;
- END IF;
- context := jsonb_build_object('previousDueDate',COALESCE(due_old,''),'newDueDate',COALESCE(due_new,COALESCE(NULLIF(NEW.data->>'date',''),NEW.data->>'dueDate','')));
- FOR recipient IN SELECT DISTINCT value FROM unnest(recipients) AS value WHERE COALESCE(value,'')<>'' LOOP
-  INSERT INTO crm_task_emails(event_key,task_id,assignee_id,kind,assignment_version,event_data,next_attempt)
-  VALUES(NEW.id::text||':'||event_kind||':'||NEW.version::text||':'||recipient,NEW.id,recipient,event_kind,NEW.version,
-   context||jsonb_build_object('recipientRole',CASE WHEN recipient=NEW.data->>'assigneeId' THEN 'assignee' ELSE 'creator' END),
-   NOW()+CASE WHEN event_kind='due_changed' THEN INTERVAL '2 minutes' ELSE INTERVAL '0 seconds' END)
-  ON CONFLICT DO NOTHING;
- END LOOP;
+ IF NEW.record_id IS NOT NULL THEN SELECT * INTO r FROM crm_records WHERE id=NEW.record_id; END IF;
+ INSERT INTO crm_admin_emails(event_key,kind,record_data)
+ VALUES('admin:'||NEW.id::text,NEW.action,jsonb_build_object(
+   'id',COALESCE(NEW.record_id::text,''),'type',COALESCE(NEW.record_type,'Accounts'),
+   'data',jsonb_build_object('name',COALESCE(r.data->>'name',NEW.record_type,NEW.action),
+      'status',COALESCE(r.data->>'status',''),'startDate',COALESCE(r.data->>'startDate',''),
+      'date',COALESCE(r.data->>'date',''),'time',COALESCE(r.data->>'time',''),'end',COALESCE(r.data->>'end','')),
+   'actorId',NEW.actor_id,'actorName',COALESCE((SELECT name FROM "user" WHERE id=NEW.actor_id),'CRM user'),
+   'occurredAt',NEW.created_at)) ON CONFLICT DO NOTHING;
  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS crm_admin_update ON crm_audit;
+CREATE TRIGGER crm_admin_update AFTER INSERT ON crm_audit FOR EACH ROW EXECUTE FUNCTION crm_queue_admin_update();

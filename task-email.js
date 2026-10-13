@@ -17,18 +17,26 @@ export function localClock(now = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Riyadh', year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(now).map(x=>[x.type,x.value]));
   return {date:`${parts.year}-${parts.month}-${parts.day}`, hour:Number(parts.hour)};
 }
+export const CRM_ADMIN_EMAIL = 'crm-ksa@dgjones.com';
+const safeText = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function taskPayload(task, recipient, event, config) {
-  const labels={assignment:'Task assigned',start:'Task starts today',due:'Task due today',completion:'Task completed',cancellation:'Task cancelled',reopened:'Task reopened',due_changed:'Task due date changed',new_contact:'New contact',new_opportunity:'New opportunity',new_meeting:'New meeting',new_complaint:'New complaint'};
-  const changes=event.event_data || {};
+  const labels={start:'Task starts today',due:'Task due today',meeting_reminder:'Meeting today',
+    'record.created':'Record added','record.updated':'Record updated','record.trashed':'Record moved to Trash',
+    'record.restored':'Record restored','record.purged':'Record permanently deleted',
+    'account.created':'Account created','account.enabled':'Account enabled','account.disabled':'Account disabled',
+    'account.role_changed':'Account role changed','account.bootstrap':'Administrator account created'};
+  const title=labels[event.kind] || event.kind.replace(/[._]/g,' ');
+  const admin=event.event_data?.recipientRole==='crm_admin';
+  const summary=admin ? `${title}: ${task.data.name || task.type}. By ${task.actorName || 'CRM user'}.` : title;
   return {eventId:event.event_key,notificationType:event.kind,taskId:task.id,
-    taskTitle:task.data.name,assigneeEmail:recipient.email,assigneeName:recipient.name,
-    startDate:task.data.startDate || '',dueDate:task.data.date || task.data.dueDate || '',crmUrl:config.website,
-    notificationTitle:labels[event.kind] || 'CRM notification',taskStatus:task.data.status || '',
-    recordId:task.id,recordType:task.type,recordTitle:task.data.name,recordStatus:task.data.status || '',
-    recipientEmail:recipient.email,recipientName:recipient.name,meetingDate:task.type==='Meetings' ? task.data.date || '' : '',
-    meetingTime:task.type==='Meetings' ? `${task.data.time || ''}–${task.data.end || ''} (Riyadh)` : '',
-    previousDueDate:changes.previousDueDate || '',recipientRole:changes.recipientRole || 'assignee',
-    changeSummary:event.kind==='due_changed' ? `Due date changed from ${changes.previousDueDate || 'not set'} to ${changes.newDueDate || 'not set'}.` : labels[event.kind] || 'Task notification'};
+    taskTitle:safeText(task.data.name),assigneeEmail:recipient.email,assigneeName:safeText(recipient.name),
+    startDate:safeText(task.data.startDate),dueDate:safeText(task.data.date || task.data.dueDate),crmUrl:config.website,
+    notificationTitle:safeText(title),taskStatus:safeText(task.data.status),
+    recordId:task.id,recordType:task.type,recordTitle:safeText(task.data.name),recordStatus:safeText(task.data.status),
+    recipientEmail:recipient.email,recipientName:safeText(recipient.name),meetingDate:task.type==='Meetings' ? safeText(task.data.date) : '',
+    meetingTime:task.type==='Meetings' ? `${safeText(task.data.time)}–${safeText(task.data.end)} (Riyadh)` : '',
+    previousDueDate:'',recipientRole:admin ? 'crm_admin' : event.kind==='meeting_reminder' ? 'personnel' : 'assignee',
+    changeSummary:safeText(summary)};
 }
 export function flowSender(config, fetcher = fetch) {
   return async payload => {
@@ -53,45 +61,50 @@ export async function queueDateReminders(db, now = new Date()) {
       AND COALESCE(data->>'status','') NOT IN ('Completed','Cancelled')
       AND COALESCE(data->>'assigneeId','')<>'' AND ${field}=$2 ON CONFLICT DO NOTHING`,[kind,clock.date]);
   }
+  await db.query(`INSERT INTO crm_task_emails(event_key,task_id,assignee_id,kind,event_date)
+    SELECT DISTINCT r.id::text||':meeting_reminder:'||$1||':'||p.person,r.id,p.person,'meeting_reminder',$1
+    FROM crm_records r CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(r.data->'personnelIds','[]'::jsonb)) p(person)
+    WHERE r.type='Meetings' AND r.deleted_at IS NULL AND r.data->>'date'=$1
+      AND COALESCE(r.data->>'status','') NOT IN ('Completed','Cancelled') AND p.person<>''
+    ON CONFLICT DO NOTHING`,[clock.date]);
+}
+async function submit(db, table, event, payload, send) {
+  // table is an internal constant, never request input.
+  try {
+    await send(payload);
+    console.log('CRM email: flow accepted request. Check Power Automate run history.');
+    await db.query(`UPDATE ${table} SET status='accepted',accepted_at=NOW(),attempts=attempts+1,last_error=NULL WHERE id=$1`,[event.id]);
+  } catch (error) {
+    console.error('CRM email:', error.message);
+    const state=error.uncertain ? 'uncertain' : error.retry && event.attempts<4 ? 'pending' : 'failed';
+    await db.query(`UPDATE ${table} SET status=$2,attempts=attempts+1,last_error=$3,next_attempt=NOW()+INTERVAL '5 minutes' WHERE id=$1`,[event.id,state,error.message.slice(0,160)]);
+  }
 }
 export async function deliverPending(pool, config, send, now = new Date()) {
-  // Same transaction lock as CRM mutations: permissions cannot change during submission.
   return transaction(pool, async db => {
     const {rows} = await db.query("SELECT * FROM crm_task_emails WHERE status='pending' AND next_attempt<=NOW() ORDER BY id LIMIT 1 FOR UPDATE");
-    const event=rows[0]; if (!event) return false;
-    const graph=await snapshot(db), task=graph.get(event.task_id);
-    const members=await db.query('SELECT m.user_id AS id,m.role,m.enabled,u.name,u.email FROM crm_members m JOIN "user" u ON u.id=m.user_id WHERE m.user_id=$1',[event.assignee_id]);
-    const recipient=members.rows[0], clock=localClock(now);
-    const date=event.kind==='start' ? task?.data.startDate : (task?.data.date || task?.data.dueDate);
-    const lifecycle=['assignment','completion','cancellation','reopened','due_changed'].includes(event.kind);
-    const latest=lifecycle ? await db.query("SELECT MAX(assignment_version) AS version FROM crm_task_emails WHERE task_id=$1 AND kind=$2 AND assignee_id=$3",[event.task_id,event.kind,event.assignee_id]) : null;
-    const currentDue=task?.data.date || task?.data.dueDate || '';
-    const closed=['Completed','Cancelled'].includes(task?.data.status);
-    const stateMatches=event.kind==='completion' ? task?.data.status==='Completed'
-      : event.kind==='cancellation' ? task?.data.status==='Cancelled' : !closed;
-    const creatorEvent=['cancellation','reopened'].includes(event.kind) && event.event_data?.recipientRole==='creator';
-    const recipientMatches=creatorEvent ? task?.owner_id===event.assignee_id : task?.data.assigneeId===event.assignee_id;
-    const timeMatches=lifecycle ? (event.kind!=='due_changed' || currentDue===event.event_data?.newDueDate && event.event_data?.previousDueDate!==event.event_data?.newDueDate)
-      : event.event_date===clock.date && date===event.event_date;
-    const generic=['new_contact','new_opportunity','new_complaint','new_meeting'].includes(event.kind);
-    const expected={new_contact:'Contacts',new_opportunity:'Opportunities',new_complaint:'Complaints',new_meeting:'Meetings'};
-    const genericValid=generic && task?.type===expected[event.kind] && recipient?.enabled && /@dgjones\.com$/i.test(recipient.email)
-      && visible(graph,recipient,task) && (event.kind==='new_meeting'
-        ? task.data.status!=='Cancelled' && (task.data.personnelIds || []).includes(event.assignee_id)
-        : recipient.role==='manager');
-    const valid=generic ? genericValid : (!latest || Number(latest.rows[0].version)===event.assignment_version) && task?.type==='Tasks'
-      && recipient?.enabled && /@dgjones\.com$/i.test(recipient.email) && recipientMatches && stateMatches
-      && visible(graph,recipient,task) && timeMatches;
-    if (!valid) {await db.query("UPDATE crm_task_emails SET status='skipped' WHERE id=$1",[event.id]);console.log('Task email: skipped (recipient, task status, privacy or stale event).');return true;}
-    try {
-      await send(taskPayload(task,recipient,event,config));
-      console.log('Task email: flow accepted request. Check Power Automate run history.');
-      await db.query("UPDATE crm_task_emails SET status='accepted',accepted_at=NOW(),attempts=attempts+1,last_error=NULL WHERE id=$1",[event.id]);
-    } catch (error) {
-      console.error('Task email:', error.message);
-      const state=error.uncertain ? 'uncertain' : error.retry && event.attempts<4 ? 'pending' : 'failed';
-      await db.query("UPDATE crm_task_emails SET status=$2,attempts=attempts+1,last_error=$3,next_attempt=NOW()+INTERVAL '5 minutes' WHERE id=$1",[event.id,state,error.message.slice(0,160)]);
+    const event=rows[0];
+    if (!event) {
+      const {rows:[admin]}=await db.query("SELECT * FROM crm_admin_emails WHERE status='pending' AND next_attempt<=NOW() ORDER BY id LIMIT 1 FOR UPDATE");
+      if (!admin) return false;
+      await submit(db,'crm_admin_emails',admin,taskPayload(admin.record_data,{email:CRM_ADMIN_EMAIL,name:'CRM Administrator'},
+        {...admin,event_data:{recipientRole:'crm_admin'}},config),send);
+      return true;
     }
+    // Defense in depth: never deliver legacy general/lifecycle emails, even if requeued.
+    if (!['start','due','meeting_reminder'].includes(event.kind)) {
+      await db.query("UPDATE crm_task_emails SET status='skipped' WHERE id=$1",[event.id]);return true;
+    }
+    const graph=await snapshot(db), record=graph.get(event.task_id);
+    const {rows:[recipient]}=await db.query('SELECT m.user_id AS id,m.role,m.enabled,u.name,u.email FROM crm_members m JOIN "user" u ON u.id=m.user_id WHERE m.user_id=$1',[event.assignee_id]);
+    const clock=localClock(now),meeting=event.kind==='meeting_reminder';
+    const date=event.kind==='start' ? record?.data.startDate : record?.data.date || record?.data.dueDate;
+    const related=meeting ? (record?.data.personnelIds || []).includes(event.assignee_id) : record?.data.assigneeId===event.assignee_id;
+    const valid=record?.type===(meeting ? 'Meetings' : 'Tasks') && recipient?.enabled && /@dgjones\.com$/i.test(recipient.email)
+      && related && !['Completed','Cancelled'].includes(record?.data.status) && visible(graph,recipient,record)
+      && clock.hour>=9 && event.event_date===clock.date && date===event.event_date;
+    if (!valid) {await db.query("UPDATE crm_task_emails SET status='skipped' WHERE id=$1",[event.id]);console.log('CRM reminder: skipped (access, recipient, status or stale date).');return true;}
+    await submit(db,'crm_task_emails',event,taskPayload(record,recipient,event,config),send);
     return true;
   });
 }
@@ -103,7 +116,7 @@ export function startTaskEmailWorker(pool, env = process.env) {
     if (running || stopped) return; running=true;
     try {
       await queueDateReminders(pool);
-      const summary=await pool.query("SELECT status,COUNT(*)::int AS count FROM crm_task_emails GROUP BY status ORDER BY status");
+      const summary=await pool.query("SELECT 'personal' AS channel,status,COUNT(*)::int AS count FROM crm_task_emails GROUP BY status UNION ALL SELECT 'admin' AS channel,status,COUNT(*)::int AS count FROM crm_admin_emails GROUP BY status");
       console.log('Task email queue:',JSON.stringify(summary.rows));
       for(let n=0;n<10 && !stopped;n++) if (!await deliverPending(pool,config,send)) break;
     }
