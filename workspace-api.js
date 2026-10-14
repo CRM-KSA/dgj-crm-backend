@@ -19,6 +19,7 @@ import {
   validateAssignee,
   versionMatches,
   stable,
+  prepareRecordData,
 } from "./records.js";
 
 const AUX = [
@@ -132,7 +133,7 @@ function auxVisible(graph, user, row, deleted = false) {
     !!row &&
     (row.kind !== "emailDrafts" || row.ownerId === user.id) &&
     (row.kind !== "activity" ||
-      user.role === "manager" ||
+      ['admin','manager'].includes(user.role) ||
       row.ownerId === user.id) &&
     refs(row).every(
       (ref) =>
@@ -143,6 +144,8 @@ function auxVisible(graph, user, row, deleted = false) {
 }
 function safeRecord(graph, user, row) {
   const out = asRecord(row);
+  out.contactIds=(out.contactIds || []).filter(id=>visible(graph,user,graph.get(id)));
+  if(out.contactRoles)out.contactRoles=Object.fromEntries(Object.entries(out.contactRoles).filter(([id])=>out.contactIds.includes(id)));
   for (const key of ["reportId", "complaintId"]) {
     if (out[key] && !visible(graph, user, graph.get(out[key]))) out[key] = "";
   }
@@ -150,7 +153,7 @@ function safeRecord(graph, user, row) {
     (h) =>
       (!h.before ||
         h.before.visibility !== "private" ||
-        (user.role === "manager" && h.before.ownerId === user.id)) &&
+        (user.role === 'admin' || (['admin','manager'].includes(user.role) && h.before.ownerId === user.id) || h.before.assigneeId === user.id)) &&
       requestedLinks(h.before || {}, row.type).every(
         (ref) =>
           graph.get(ref.id)?.type === ref.type &&
@@ -179,7 +182,7 @@ async function view(db, user, graph, aux) {
     [...TYPES, ...AUX, "savedViews"].map((k) => [k, []]),
   );
   for (const row of graph.values())
-    if (visible(graph, user, row, !!row.deleted_at && user.role === "manager"))
+    if (visible(graph, user, row, !!row.deleted_at && ['admin','manager'].includes(user.role)))
       state[row.type].push(safeRecord(graph, user, row));
   for (const row of aux)
     if (auxVisible(graph, user, row))
@@ -206,12 +209,12 @@ async function view(db, user, graph, aux) {
     "SELECT * FROM crm_audit ORDER BY created_at DESC,id DESC LIMIT 1000",
   );
   for (const event of events) {
-    if (user.role !== "manager" && event.actor_id !== user.id) continue;
+    if (!['admin','manager'].includes(user.role) && event.actor_id !== user.id) continue;
     if (
       event.policy.some(
         (p) =>
           p.visibility === "private" &&
-          (user.role !== "manager" || p.ownerId !== user.id),
+          (user.role !== 'admin' && p.ownerId !== user.id && p.assigneeId !== user.id),
       )
     )
       continue;
@@ -235,7 +238,7 @@ async function view(db, user, graph, aux) {
 }
 function historicalData(user, type, old, input) {
   const { visibility: ignored, ...change } = input;
-  const data = { ...old?.data, ...change };
+  const data = prepareRecordData(user,type,old,change);
   if (old)
     data.history = [
       ...(old.data.history || []),
@@ -387,7 +390,7 @@ export async function writeWorkspace(pool, actor, body, key) {
           if (
             op.kind === "notes" &&
             old.ownerId !== user.id &&
-            user.role !== "manager"
+            !['admin','manager'].includes(user.role)
           )
             fail(
               403,

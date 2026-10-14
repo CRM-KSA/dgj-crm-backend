@@ -33,8 +33,13 @@ import {
 import { createMember, setEnabled, setRole } from "./users.js";
 import { mountWorkspace } from "./workspace-api.js";
 
-const release = "dgj-admin-routing-20261013-r1";
+const release = "dgj-manager-feedback-20261014-r1";
 
+function publicRecord(row,graph,user){
+ const out=asRecord(row);out.contactIds=(out.contactIds || []).filter(id=>visible(graph,user,graph.get(id)));
+ if(out.contactRoles)out.contactRoles=Object.fromEntries(Object.entries(out.contactRoles).filter(([id])=>out.contactIds.includes(id)));
+ return out;
+}
 export function createApp({ config, pool, auth }) {
   const app = express();
   app.disable("x-powered-by");
@@ -195,7 +200,7 @@ export function createApp({ config, pool, auth }) {
   });
   app.patch("/api/users/:id/role", async (req, res) => {
     manager(req.crmUser);
-    const {role} = parse(z.object({role: z.enum(["manager", "member", "visitor"])}).strict(), req.body);
+    const {role} = parse(z.object({role: z.enum(["admin", "manager", "member", "visitor"])}).strict(), req.body);
     if (!/^[a-zA-Z0-9_-]{1,128}$/.test(req.params.id)) fail(400, "INVALID_ID", "Invalid user ID.");
     res.json(await setRole(pool, req.crmUser, req.params.id, role));
   });
@@ -203,10 +208,11 @@ export function createApp({ config, pool, auth }) {
     const type = typeOf(req.params.type),
       query = listQuery(req.query);
     const rows = filtered(await snapshot(pool), req.crmUser, type, query);
+    const graph=await snapshot(pool);
     res.json({
       records: rows
         .slice(query.offset, query.offset + query.limit)
-        .map(asRecord),
+        .map(r=>publicRecord(r,graph,req.crmUser)),
       total: rows.length,
     });
   });
@@ -217,7 +223,7 @@ export function createApp({ config, pool, auth }) {
       typeOf(req.params.type),
       uuid(req.params.id),
     );
-    res.set("ETag", `"${row.version}"`).json({ record: asRecord(row) });
+    res.set("ETag", `"${row.version}"`).json({ record: publicRecord(row,await snapshot(pool),req.crmUser) });
   });
   app.post("/api/records/:type", async (req, res) => {
     const type = typeOf(req.params.type);
@@ -268,10 +274,11 @@ export function createApp({ config, pool, auth }) {
     manager(req.crmUser);
     const query = listQuery(req.query),
       rows = filtered(await snapshot(pool), req.crmUser, null, query, true);
+    const graph=await snapshot(pool);
     res.json({
       records: rows
         .slice(query.offset, query.offset + query.limit)
-        .map(asRecord),
+        .map(r=>publicRecord(r,graph,req.crmUser)),
       total: rows.length,
     });
   });
@@ -332,7 +339,7 @@ export function createApp({ config, pool, auth }) {
     const events = rows
       .filter((event) => {
         if (
-          (user.role !== "manager" || query.scope === "my") &&
+          (!['admin','manager'].includes(user.role) || query.scope === "my") &&
           event.actor_id !== user.id
         )
           return false;
@@ -340,7 +347,7 @@ export function createApp({ config, pool, auth }) {
           event.policy.some(
             (p) =>
               p.visibility === "private" &&
-              (user.role !== "manager" || p.ownerId !== user.id),
+              (user.role !== 'admin' && p.ownerId !== user.id && p.assigneeId !== user.id),
           )
         )
           return false;
@@ -360,6 +367,27 @@ export function createApp({ config, pool, auth }) {
       events: events.slice(query.offset, query.offset + query.limit),
       total: events.length,
     });
+  });
+  app.get('/api/logs', async (req,res)=>{
+    const user=req.crmUser;manager(user);
+    const query=listQuery(req.query),graph=await snapshot(pool);
+    const {rows}=await pool.query(`SELECT e.*,a.actor_id,a.policy,a.created_at AS occurred_at,u.name AS actor_name
+      FROM crm_admin_emails e JOIN crm_audit a ON e.event_key='admin:'||a.id::text
+      LEFT JOIN "user" u ON u.id=a.actor_id ORDER BY e.id DESC`);
+    const permitted=rows.filter(e=>{
+      const assignedSnapshot=e.policy[0]?.visibility==='private' && e.policy[0]?.assigneeId===user.id;
+      if(user.role!=='admin' && !assignedSnapshot && e.policy.some(p=>p.visibility==='private' && p.ownerId!==user.id && p.assigneeId!==user.id))return false;
+      const current=graph.get(e.record_data.id);
+      if(current && !visible(graph,user,current,true))return false;
+      if(query.scope==='my' && e.actor_id!==user.id)return false;
+      return [e.kind,e.record_data.type,e.record_data.data.name,e.actor_name,e.status].join(' ').toLowerCase().includes(query.query.toLowerCase());
+    });
+    res.json({total:permitted.length,logs:permitted.slice(query.offset,query.offset+query.limit).map(e=>({
+      id:e.id,eventId:e.event_key,action:e.kind,recordId:e.record_data.id,recordType:e.record_data.type,
+      recordTitle:e.record_data.data.name,actorId:e.actor_id,actorName:e.actor_name,
+      time:new Date(e.occurred_at).getTime(),emailTo:'crm-ksa@dgjones.com',emailStatus:e.status,
+      acceptedAt:e.accepted_at?new Date(e.accepted_at).getTime():null
+    }))});
   });
   app.get("/api/preferences", async (req, res) => {
     const { rows } = await pool.query(

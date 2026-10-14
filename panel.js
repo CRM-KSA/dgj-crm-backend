@@ -58,7 +58,7 @@
     const form = el('contact-form'); form.reset();
     for (const field of ['name','company','jobTitle','email','phone','visibility']) form.elements[field].value = record[field] || (field === 'visibility' ? 'shared' : '');
     el('contact-form-title').textContent = 'تعديل الكونتاكت'; el('cancel-edit').hidden = false;
-    el('visibility-field').hidden = user.role !== 'manager' || record.ownerId !== user.id;
+    el('visibility-field').hidden = !['admin','manager'].includes(user.role) || record.ownerId !== user.id;
     form.elements.name.focus();
   }
   async function loadContacts() {
@@ -72,7 +72,7 @@
       const info = document.createElement('div'); info.append(textNode('h3', record.name), textNode('p', [record.company,record.jobTitle].filter(Boolean).join(' · ')),
         textNode('p', [record.email,record.phone].filter(Boolean).join(' · ')), textNode('p', record.visibility === 'private' ? 'خاص بالمديرة' : 'مشترك'));
       const actions = document.createElement('div'); actions.className = 'buttons'; actions.append(button('تعديل', () => edit(record)));
-      if (user.role === 'manager') actions.append(button('حذف', async () => {
+      if (['admin','manager'].includes(user.role)) actions.append(button('حذف', async () => {
         if (!confirm(`نقل «${record.name}» للمحذوفات؟`)) return;
         await request(`/api/records/Contacts/${record.id}/trash`, {method: 'POST', version: record.version});
         if (editing?.id === record.id) resetContact(); await refresh(); message('تم نقله للمحذوفات.');
@@ -118,7 +118,7 @@
   }
   async function refresh() {
     await loadContacts();
-    if (user.role === 'manager') {await loadAccounts(); await loadTrash();}
+    if (['admin','manager'].includes(user.role)) {await loadAccounts(); await loadTrash();}
   }
   el('login-form').addEventListener('submit', event => {
     event.preventDefault(); busy(event.currentTarget, async () => {
@@ -128,8 +128,8 @@
       token = result.token;
       try { user = (await request('/api/me')).data.user; } catch (error) {clearSession(); throw error;}
       el('login-card').hidden = true; el('workspace').hidden = false; el('greeting').textContent = `أهلًا ${user.name}`;
-      el('role-label').textContent = user.role === 'manager' ? 'حساب مديرة · إدارة الفريق والكونتاكت' : 'حساب عضوة · الكونتاكت المشترك';
-      for (const id of ['account-section','trash-section','export']) el(id).hidden = user.role !== 'manager';
+      el('role-label').textContent = ['admin','manager'].includes(user.role) ? 'حساب مديرة · إدارة الفريق والكونتاكت' : 'حساب عضوة · الكونتاكت المشترك';
+      for (const id of ['account-section','trash-section','export']) el(id).hidden = !['admin','manager'].includes(user.role);
       offset = 0; query = ''; resetContact(); await refresh(); message('تم تسجيل الدخول.');
     });
   });
@@ -139,7 +139,7 @@
   el('contact-form').addEventListener('submit', event => {
     event.preventDefault(); busy(event.currentTarget, async () => {
       const form = el('contact-form'), body = Object.fromEntries(['name','company','jobTitle','email','phone'].map(field => [field, form.elements[field].value.trim()]));
-      if (user.role === 'manager' && (!editing || editing.ownerId === user.id)) body.visibility = form.elements.visibility.value;
+      if (['admin','manager'].includes(user.role) && (user.role === 'admin' || !editing || editing.ownerId === user.id)) body.visibility = form.elements.visibility.value;
       if (editing) await request(`/api/records/Contacts/${editing.id}`, {method: 'PATCH', body, version: editing.version});
       else {createKey ||= crypto.randomUUID(); await request('/api/records/Contacts', {method: 'POST', body, key: createKey});}
       resetContact(); offset = 0; await refresh(); message('تم حفظ الكونتاكت في قاعدة البيانات.');

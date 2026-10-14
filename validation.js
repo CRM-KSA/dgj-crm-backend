@@ -40,6 +40,7 @@ const common = {
 };
 const fields = {
   Contacts: {
+    assigneeId: text(128),
     email: z.union([z.literal(""), z.email().max(254)]),
     phone: text(80),
     jobTitle: text(),
@@ -52,6 +53,7 @@ const fields = {
     website: url,
   },
   Opportunities: {
+    assigneeId: text(128),
     reference: text(),
     region: text(),
     service: text(),
@@ -126,6 +128,7 @@ const fields = {
       .max(50),
   },
   Complaints: {
+    complaintScope: z.enum(["general","opportunity"]),
     date,
     details: text(20000),
     severity: text(100),
@@ -160,7 +163,7 @@ export const userInput = z
       .max(254)
       .transform((s) => s.toLowerCase()),
     password: z.string().min(12).max(128),
-    role: z.enum(["manager", "member", "visitor"]).default("member"),
+    role: z.enum(["admin", "manager", "member", "visitor"]).default("member"),
   })
   .strict();
 

@@ -9,7 +9,7 @@ export async function bootstrapManager(pool, auth, config) {
     await lock.query('SELECT pg_advisory_lock(448451)');
     if ((await lock.query("SELECT 1 FROM crm_settings WHERE key='initial-manager-created'")).rowCount) return;
     if (!config.bootstrap) {
-      const count = (await lock.query("SELECT COUNT(*)::int AS n FROM crm_members WHERE role='manager' AND enabled=TRUE")).rows[0].n;
+      const count = (await lock.query("SELECT COUNT(*)::int AS n FROM crm_members WHERE role IN ('admin','manager') AND enabled=TRUE")).rows[0].n;
       if (count) return;
       throw new Error('Set bootstrap manager variables for the first deployment.');
     }
@@ -19,6 +19,7 @@ export async function bootstrapManager(pool, auth, config) {
     if (!user) user = (await auth.api.createUser({body: {email, password, name, role: 'user'}})).user;
     await lock.query('BEGIN');
     await lock.query("INSERT INTO crm_members(user_id,role,enabled) VALUES($1,'manager',TRUE) ON CONFLICT(user_id) DO UPDATE SET role='manager',enabled=TRUE", [user.id]);
+    if(email==='crm-ksa@dgjones.com') await lock.query("UPDATE crm_members SET role='admin' WHERE user_id=$1",[user.id]);
     await lock.query("INSERT INTO crm_settings(key,value) VALUES('initial-manager-created',$1::jsonb)", [JSON.stringify({userId: user.id})]);
     await audit(lock, user, 'account.bootstrap');
     await lock.query('COMMIT');
@@ -33,7 +34,10 @@ export async function bootstrapManager(pool, auth, config) {
 }
 
 export async function createMember(pool, auth, actor, input) {
-  manager(await trustedMember(pool, actor.id));
+  const actorMember=await trustedMember(pool, actor.id);
+  manager(actorMember);
+  if (input.role==='admin' && actorMember.role!=='admin') fail(403,'ADMIN_REQUIRED','Only an administrator can create another administrator.');
+  if (input.email.toLowerCase()==='crm-ksa@dgjones.com' && actorMember.role!=='admin') fail(403,'ADMIN_REQUIRED','The central administrator address is reserved.');
   if (!input.email.toLowerCase().endsWith("@dgjones.com")) {
     fail(400, "COMPANY_EMAIL_REQUIRED", "Team accounts must use an @dgjones.com email address.");
   }
@@ -46,6 +50,7 @@ export async function createMember(pool, auth, actor, input) {
   const created = (await auth.api.createUser({body: {name: input.name, email: input.email, password: input.password, role: 'user'}})).user;
   return transaction(pool, async db => {
     const user = await trustedMember(db, actor.id); manager(user);
+    if (input.role==='admin' && user.role!=='admin') fail(403,'ADMIN_REQUIRED','Administrator access changed. Sign in again.');
     await db.query('INSERT INTO crm_members(user_id,role) VALUES($1,$2)', [created.id, input.role]);
     await audit(db, user, 'account.created');
     return profile({...created, role: input.role});
@@ -58,8 +63,10 @@ export async function setEnabled(pool, actor, targetId, enabled) {
     if (targetId === user.id) fail(400, 'SELF_DISABLE', 'You cannot disable your own account.');
     const target = (await db.query('SELECT * FROM crm_members WHERE user_id=$1', [targetId])).rows[0];
     if (!target) fail(404, 'NOT_FOUND', 'Account not available.');
+    if (target.role==='admin' && user.role!=='admin') fail(403,'ADMIN_REQUIRED','Only an administrator can manage an administrator account.');
+    if (!enabled && target.role==='admin' && !(await db.query("SELECT 1 FROM crm_members WHERE role='admin' AND enabled=TRUE AND user_id<>$1",[targetId])).rowCount) fail(409,'LAST_ADMIN','At least one administrator must stay enabled.');
     if (!enabled && target.role === 'manager') {
-      const n = (await db.query("SELECT COUNT(*)::int AS n FROM crm_members WHERE role='manager' AND enabled=TRUE AND user_id<>$1", [targetId])).rows[0].n;
+      const n = (await db.query("SELECT COUNT(*)::int AS n FROM crm_members WHERE role IN ('admin','manager') AND enabled=TRUE AND user_id<>$1", [targetId])).rows[0].n;
       if (!n) fail(409, 'LAST_MANAGER', 'At least one manager must stay enabled.');
     }
     await db.query('UPDATE crm_members SET enabled=$2 WHERE user_id=$1', [targetId, enabled]);
@@ -72,13 +79,16 @@ export async function setEnabled(pool, actor, targetId, enabled) {
 export async function setRole(pool, actor, targetId, role) {
   return transaction(pool, async db => {
     const user = await trustedMember(db, actor.id); manager(user);
-    if (!['manager','member','visitor'].includes(role)) fail(400, 'INVALID_ROLE', 'Choose a valid CRM role.');
+    if (!['admin','manager','member','visitor'].includes(role)) fail(400, 'INVALID_ROLE', 'Choose a valid CRM role.');
     const target = (await db.query('SELECT * FROM crm_members WHERE user_id=$1', [targetId])).rows[0];
     if (!target) fail(404, 'NOT_FOUND', 'Account not available.');
+    if (target.role==='admin' && user.role!=='admin') fail(403,'ADMIN_REQUIRED','Only an administrator can manage an administrator account.');
+    if (role==='admin' && user.role!=='admin') fail(403,'ADMIN_REQUIRED','Only an administrator can grant administrator access.');
+    if (target.enabled && target.role==='admin' && role!=='admin' && !(await db.query("SELECT 1 FROM crm_members WHERE role='admin' AND enabled=TRUE AND user_id<>$1",[targetId])).rowCount) fail(409,'LAST_ADMIN','At least one administrator must stay enabled.');
     if (target.role === role) return {id: targetId, role};
     if (targetId === user.id) fail(400, 'SELF_ROLE_CHANGE', 'Another manager must change your role.');
     if (target.enabled && target.role === 'manager' && role !== 'manager') {
-      const n = (await db.query("SELECT COUNT(*)::int AS n FROM crm_members WHERE role='manager' AND enabled=TRUE AND user_id<>$1", [targetId])).rows[0].n;
+      const n = (await db.query("SELECT COUNT(*)::int AS n FROM crm_members WHERE role IN ('admin','manager') AND enabled=TRUE AND user_id<>$1", [targetId])).rows[0].n;
       if (!n) fail(409, 'LAST_MANAGER', 'At least one manager must stay enabled.');
     }
     await db.query('UPDATE crm_members SET role=$2 WHERE user_id=$1', [targetId, role]);

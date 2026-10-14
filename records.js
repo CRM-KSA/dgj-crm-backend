@@ -9,7 +9,7 @@ export async function trustedMember(db, id) {
   return rows[0];
 }
 export function manager(user) {
-  if (user.role !== 'manager') fail(403, 'MANAGER_REQUIRED', 'Only a manager can do this.');
+  if (!['admin','manager'].includes(user.role)) fail(403, 'MANAGER_REQUIRED', 'Only a manager can do this.');
 }
 export function writable(user) {
   if (user.role === 'visitor') fail(403, 'READ_ONLY', 'Visitor accounts can view records only.');
@@ -24,9 +24,12 @@ export async function snapshot(db) {
 }
 export function visible(graph, user, record, includeDeleted = false, path = new Set()) {
   if (!record || (!includeDeleted && record.deleted_at)) return false;
-  if (record.visibility === 'private' && (user.role !== 'manager' || record.owner_id !== user.id)) return false;
+  if (record.visibility === 'private' && user.role !== 'admin' && !(['admin','manager'].includes(user.role) && record.owner_id === user.id) && record.data.assigneeId !== user.id) return false;
   if (path.has(record.id) || path.size > 50) return false;
   const nextPath = new Set(path).add(record.id);
+  // An explicit private opportunity assignment grants this record, not its private contacts.
+  if (record.type==='Opportunities' && record.visibility==='private' && record.data.assigneeId===user.id)
+    return record.parents.every(id=>graph.has(id) && (includeDeleted || !graph.get(id).deleted_at));
   return record.parents.every(id => visible(graph, user, graph.get(id), includeDeleted, nextPath));
 }
 export function authorized(graph, user, type, id, deleted = false) {
@@ -43,7 +46,7 @@ export function asRecord(record) {
 function policy(graph, record, seen = new Set()) {
   if (!record || seen.has(record.id)) return [];
   seen.add(record.id);
-  return [{id: record.id, ownerId: record.owner_id, visibility: record.visibility},
+  return [{id: record.id, ownerId: record.owner_id, assigneeId: record.data.assigneeId || "", visibility: record.visibility},
     ...record.parents.flatMap(id => policy(graph, graph.get(id), seen))];
 }
 export async function audit(db, actor, action, graph = new Map(), record = null) {
@@ -52,6 +55,8 @@ export async function audit(db, actor, action, graph = new Map(), record = null)
 }
 
 export function requestedLinks(data, type) {
+  if (type === 'Complaints') return data.opportunityId ? [{id:data.opportunityId,type:'Opportunities'}] : [];
+
   return [...(data.contactIds || []).map(id => ({id, type: 'Contacts'})),
     ...(data.opportunityId ? [{id: data.opportunityId, type: 'Opportunities'}] : []),
     ...(data.meetingId ? [{id: data.meetingId, type: 'Meetings'}] : []),
@@ -61,7 +66,9 @@ export function validateLinks(graph, user, data, id, type) {
   const refs = requestedLinks(data, type);
   for (const ref of refs) {
     const target = graph.get(ref.id);
-    if (ref.id === id || target?.type !== ref.type || !visible(graph, user, target)) {
+    const current=graph.get(id);
+    const retainedAssignedLink=current?.visibility==='private' && current.data.assigneeId===user.id && current.parents?.includes(ref.id) && target && !target.deleted_at;
+    if (ref.id === id || target?.type !== ref.type || (!visible(graph, user, target) && !retainedAssignedLink)) {
       fail(400, 'INVALID_LINK', 'A linked record is unavailable.');
     }
     const contains = (node, path = new Set()) => {
@@ -88,7 +95,7 @@ export function stable(value) {
 export function visibilityFor(user, type, input, old = null) {
   const next = input.visibility ?? old?.visibility ?? 'shared';
   if (next !== (old?.visibility ?? 'shared')) {
-    if (user.role !== 'manager' || !PRIVATE_TYPES.includes(type) || (old && old.owner_id !== user.id)) {
+    if (!['admin','manager'].includes(user.role) || !PRIVATE_TYPES.includes(type) || (old && old.owner_id !== user.id && user.role !== 'admin')) {
       fail(403, 'VISIBILITY_FORBIDDEN', 'Only the owning manager can change visibility.');
     }
   }
@@ -104,6 +111,30 @@ export async function validateAssignee(db, data) {
   if (!data.assigneeId) return;
   const { rows } = await db.query('SELECT user_id FROM crm_members WHERE user_id=$1 AND enabled=TRUE', [data.assigneeId]);
   if (!rows.length) fail(400, 'INVALID_ASSIGNEE', 'Choose an active team member.');
+}
+export function prepareRecordData(user, type, old, input) {
+  const data = {...old?.data, ...input};
+  delete data.visibility;
+  if (old?.visibility === 'private' && ['Contacts','Opportunities'].includes(type)
+      && user.role !== 'admin' && old.owner_id !== user.id
+      && (data.assigneeId || '') !== (old.data.assigneeId || ''))
+    fail(403,'ASSIGNMENT_FORBIDDEN','Only the private record owner or administrator can change its assignee.');
+  if (old?.visibility==='private' && old.data.assigneeId===user.id && old.owner_id!==user.id && user.role!=='admin') {
+    // The assigned person edits the record; its owner manages existing private links.
+    for(const key of ['contactIds','contactRoles','opportunityId','meetingId']) {
+      if(old.data[key]!==undefined)data[key]=old.data[key];else delete data[key];
+    }
+  }
+  if (type === 'Complaints') {
+    if (input.contactIds?.length || input.meetingId) fail(400,'COMPLAINT_LINK','Complaints link to an opportunity or are general.');
+    const scope=data.complaintScope || (data.opportunityId ? 'opportunity' : 'general');
+    if (scope==='opportunity' && !data.opportunityId) fail(400,'OPPORTUNITY_REQUIRED','Choose an opportunity for this complaint.');
+    if (scope==='general' && data.opportunityId) fail(400,'COMPLAINT_LINK','General complaints cannot link to an opportunity.');
+    data.complaintScope=scope;data.contactIds=[];data.meetingId='';
+  }
+  if (type === 'Tasks') data.completedAt=data.status==='Completed'
+    ? (old?.data.status==='Completed' ? old.data.completedAt || '' : new Date().toISOString()) : '';
+  return data;
 }
 export function versionMatches(record, version) {
   if (record.version !== version) fail(412, 'EDIT_CONFLICT', 'Someone changed this record. Reload before saving.');
@@ -125,6 +156,7 @@ export async function createRecord(pool, actor, type, input, key) {
     const id = randomUUID();
     const visibility = visibilityFor(user, type, input);
     const {visibility: ignored, ...data} = input;
+    Object.assign(data,prepareRecordData(user,type,null,data));
     data.contactIds ||= [];
     const parents = validateLinks(graph, user, data, id, type);
     await validateAssignee(db, data);
@@ -147,7 +179,7 @@ export async function updateRecord(pool, actor, type, id, input, version) {
     versionMatches(old, version);
     const visibility = visibilityFor(user, type, input, old);
     const {visibility: ignored, ...change} = input;
-    const data = {...old.data, ...change};
+    const data = prepareRecordData(user,type,old,change);
     const parents = validateLinks(graph, user, data, id, type);
     await validateAssignee(db, data);
     const {rows: [row]} = await db.query('UPDATE crm_records SET data=$2::jsonb,visibility=$3,version=version+1,updated_at=NOW() WHERE id=$1 RETURNING *', [id, JSON.stringify(data), visibility]);

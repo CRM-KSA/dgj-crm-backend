@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS crm_members (
   user_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE RESTRICT,
-  role TEXT NOT NULL CHECK (role IN ('manager','member','visitor')),
+  role TEXT NOT NULL CHECK (role IN ('admin','manager','member','visitor')),
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS crm_preferences (
 
 -- Upgrade the role constraint on existing installations without changing accounts.
 ALTER TABLE crm_members DROP CONSTRAINT IF EXISTS crm_members_role_check;
-ALTER TABLE crm_members ADD CONSTRAINT crm_members_role_check CHECK (role IN ('manager','member','visitor'));
+ALTER TABLE crm_members ADD CONSTRAINT crm_members_role_check CHECK (role IN ('admin','manager','member','visitor'));
 
 -- Transactional task email queue: no notification is queued for existing test data.
 CREATE TABLE IF NOT EXISTS crm_task_emails (
@@ -108,3 +108,18 @@ END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS crm_admin_update ON crm_audit;
 CREATE TRIGGER crm_admin_update AFTER INSERT ON crm_audit FOR EACH ROW EXECUTE FUNCTION crm_queue_admin_update();
+
+-- Central account becomes administrator; no account or password is recreated.
+UPDATE crm_members m SET role='admin' FROM "user" u
+ WHERE m.user_id=u.id AND LOWER(u.email)='crm-ksa@dgjones.com' AND m.role='manager';
+-- Preserve the original legacy associations once before conversion.
+INSERT INTO crm_settings(key,value)
+ SELECT 'legacy-complaint-links:'||r.id::text,jsonb_build_object('data',r.data,'parents',COALESCE((SELECT jsonb_agg(parent_id) FROM crm_links WHERE child_id=r.id),'[]'::jsonb))
+ FROM crm_records r WHERE r.type='Complaints' AND (r.data->>'complaintScope' IS NULL OR COALESCE(r.data->'contactIds','[]'::jsonb)<>'[]'::jsonb OR COALESCE(r.data->>'meetingId','')<>'')
+ ON CONFLICT DO NOTHING;
+-- Legacy contact-linked complaints become general unless already linked to an opportunity.
+UPDATE crm_records SET data=(data - 'contactIds' - 'meetingId')||jsonb_build_object(
+ 'contactIds','[]'::jsonb,'meetingId','','complaintScope',CASE WHEN COALESCE(data->>'opportunityId','')<>'' THEN 'opportunity' ELSE 'general' END)
+ WHERE type='Complaints' AND (data->>'complaintScope' IS NULL OR COALESCE(data->'contactIds','[]'::jsonb)<>'[]'::jsonb OR COALESCE(data->>'meetingId','')<>'');
+DELETE FROM crm_links l USING crm_records c WHERE l.child_id=c.id AND c.type='Complaints'
+ AND l.parent_id::text<>COALESCE(c.data->>'opportunityId','');
