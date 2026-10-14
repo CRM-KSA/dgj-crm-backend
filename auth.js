@@ -12,7 +12,7 @@ export function authOptions(config, pool) {
     session: { expiresIn: 60 * 60 * 8, updateAge: 60 * 30, cookieCache: { enabled: false } },
     user: { changeEmail: { enabled: false }, deleteUser: { enabled: false } },
     rateLimit: { enabled: true, storage: 'database', window: 60, max: 60,
-      customRules: {'/sign-in/email': {window: 900, max: 10}} },
+      customRules: {'/sign-in/email': {window: 900, max: 30}} },
     plugins: [bearer({ requireSignature: true }), admin()],
     advanced: { useSecureCookies: config.baseURL.startsWith('https://'),
       ipAddress: {ipAddressHeaders: ['x-dgj-client-ip']} },
